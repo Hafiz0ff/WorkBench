@@ -141,19 +141,29 @@ struct TasksView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
                                     .truncationMode(.tail)
-                                HStack(spacing: 12) {
-                                    Button(store.localeStore.text("gui.tasks.use")) {
-                                        Task { await store.useTask(task.id) }
+                                ViewThatFits(in: .horizontal) {
+                                    HStack(spacing: 12) {
+                                        Button(store.localeStore.text("gui.tasks.use")) {
+                                            Task { await store.useTask(task.id) }
+                                        }
+                                        Button(store.localeStore.text("gui.tasks.archive")) {
+                                            Task { await store.archiveTask(task.id) }
+                                        }
+                                        Spacer()
                                     }
-                                    Button(store.localeStore.text("gui.tasks.archive")) {
-                                        Task { await store.archiveTask(task.id) }
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Button(store.localeStore.text("gui.tasks.use")) {
+                                            Task { await store.useTask(task.id) }
+                                        }
+                                        Button(store.localeStore.text("gui.tasks.archive")) {
+                                            Task { await store.archiveTask(task.id) }
+                                        }
                                     }
-                                    Spacer()
                                 }
                             }
                             .padding(.vertical, 6)
                         }
-                        .frame(minHeight: 280)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     } else {
                         EmptyStateView(
                             title: store.localeStore.text("gui.tasks.empty"),
@@ -228,19 +238,29 @@ struct RolesView: View {
                                 .font(.subheadline)
                                 .lineLimit(2)
                                 .truncationMode(.tail)
-                            HStack(spacing: 12) {
-                                Button(store.localeStore.text("gui.roles.use")) {
-                                    Task { await store.useRole(role.name) }
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 12) {
+                                    Button(store.localeStore.text("gui.roles.use")) {
+                                        Task { await store.useRole(role.name) }
+                                    }
+                                    Button(store.localeStore.text("gui.roles.inspect")) {
+                                        Task { await store.inspectRole(role.name) }
+                                    }
+                                    Spacer()
                                 }
-                                Button(store.localeStore.text("gui.roles.inspect")) {
-                                    Task { await store.inspectRole(role.name) }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Button(store.localeStore.text("gui.roles.use")) {
+                                        Task { await store.useRole(role.name) }
+                                    }
+                                    Button(store.localeStore.text("gui.roles.inspect")) {
+                                        Task { await store.inspectRole(role.name) }
+                                    }
                                 }
-                                Spacer()
                             }
                         }
                         .padding(.vertical, 6)
                     }
-                    .frame(minHeight: 320)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.roles.empty"),
@@ -368,25 +388,41 @@ struct ExtensionsView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
-                            HStack(spacing: 12) {
-                                Button(store.localeStore.text("gui.extensions.enable")) {
-                                    Task { await store.enableExtension(entry.id) }
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 12) {
+                                    Button(store.localeStore.text("gui.extensions.enable")) {
+                                        Task { await store.enableExtension(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.extensions.disable")) {
+                                        Task { await store.disableExtension(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.extensions.update")) {
+                                        Task { await store.updateExtension(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.extensions.remove")) {
+                                        Task { await store.removeExtension(entry.id) }
+                                    }
+                                    Spacer()
                                 }
-                                Button(store.localeStore.text("gui.extensions.disable")) {
-                                    Task { await store.disableExtension(entry.id) }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Button(store.localeStore.text("gui.extensions.enable")) {
+                                        Task { await store.enableExtension(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.extensions.disable")) {
+                                        Task { await store.disableExtension(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.extensions.update")) {
+                                        Task { await store.updateExtension(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.extensions.remove")) {
+                                        Task { await store.removeExtension(entry.id) }
+                                    }
                                 }
-                                Button(store.localeStore.text("gui.extensions.update")) {
-                                    Task { await store.updateExtension(entry.id) }
-                                }
-                                Button(store.localeStore.text("gui.extensions.remove")) {
-                                    Task { await store.removeExtension(entry.id) }
-                                }
-                                Spacer()
                             }
                         }
                         .padding(.vertical, 6)
                     }
-                    .frame(minHeight: 320)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.extensions.empty"),
@@ -525,19 +561,29 @@ struct RegistryView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
-                            HStack(spacing: 12) {
-                                Button(store.localeStore.text("gui.registry.install")) {
-                                    Task { await store.installRegistryEntry(entry.id) }
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 12) {
+                                    Button(store.localeStore.text("gui.registry.install")) {
+                                        Task { await store.installRegistryEntry(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.registry.inspect")) {
+                                        Task { await store.inspectRegistryEntry(entry.id) }
+                                    }
+                                    Spacer()
                                 }
-                                Button(store.localeStore.text("gui.registry.inspect")) {
-                                    Task { await store.inspectRegistryEntry(entry.id) }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Button(store.localeStore.text("gui.registry.install")) {
+                                        Task { await store.installRegistryEntry(entry.id) }
+                                    }
+                                    Button(store.localeStore.text("gui.registry.inspect")) {
+                                        Task { await store.inspectRegistryEntry(entry.id) }
+                                    }
                                 }
-                                Spacer()
                             }
                         }
                         .padding(.vertical, 6)
                     }
-                    .frame(minHeight: 320)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.registry.empty"),
