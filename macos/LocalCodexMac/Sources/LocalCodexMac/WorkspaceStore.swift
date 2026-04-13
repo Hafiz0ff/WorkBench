@@ -97,14 +97,51 @@ final class WorkspaceStore: ObservableObject {
         return URL(fileURLWithPath: trimmed)
     }
 
-    static func resolveBundledEngineRoot(resourceURL: URL? = Bundle.main.resourceURL) -> URL? {
-        guard let resourceURL else { return nil }
-        let marker = resourceURL.appendingPathComponent("engine-root.txt")
-        guard let rawPath = try? String(contentsOf: marker, encoding: .utf8) else { return nil }
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let url = URL(fileURLWithPath: trimmed)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    static func resolveBundledEngineRoot(
+        bundleURL: URL? = Bundle.main.bundleURL,
+        resourceURL: URL? = Bundle.main.resourceURL
+    ) -> URL? {
+        if let resourceURL {
+            let marker = resourceURL.appendingPathComponent("engine-root.txt")
+            if let rawPath = try? String(contentsOf: marker, encoding: .utf8) {
+                let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    let url = URL(fileURLWithPath: trimmed)
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        return url
+                    }
+                }
+            }
+        }
+
+        if let bundleURL, let resolved = boundedEngineRootSearch(startingAt: bundleURL) {
+            return resolved
+        }
+        if let resourcesParent = resourceURL?.deletingLastPathComponent(),
+           let resolved = boundedEngineRootSearch(startingAt: resourcesParent) {
+            return resolved
+        }
+
+        return nil
+    }
+
+    private static func boundedEngineRootSearch(startingAt url: URL, maxDepth: Int = 8) -> URL? {
+        let fm = FileManager.default
+        var current = url.standardizedFileURL
+        var remaining = maxDepth
+        while remaining >= 0 {
+            let cliCandidate = current.appendingPathComponent("src/cli.js")
+            if fm.fileExists(atPath: cliCandidate.path) {
+                return current
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+            remaining -= 1
+        }
+        return nil
     }
 
     var engineRootDisplay: String {

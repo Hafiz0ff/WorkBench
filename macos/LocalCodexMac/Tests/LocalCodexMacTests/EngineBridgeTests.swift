@@ -7,13 +7,27 @@ final class EngineBridgeTests: XCTestCase {
     func testResolveBundledEngineRootReadsMarkerFile() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let resourceURL = root.appendingPathComponent("Resources", isDirectory: true)
+        let bundleURL = root.appendingPathComponent("Workbench.app", isDirectory: true)
         try FileManager.default.createDirectory(at: resourceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let engineRoot = root.appendingPathComponent("engine-root", isDirectory: true)
         try FileManager.default.createDirectory(at: engineRoot, withIntermediateDirectories: true)
         try "  \(engineRoot.path)\n".write(to: resourceURL.appendingPathComponent("engine-root.txt"), atomically: true, encoding: .utf8)
 
-        let resolved = WorkspaceStore.resolveBundledEngineRoot(resourceURL: resourceURL)
+        let resolved = WorkspaceStore.resolveBundledEngineRoot(bundleURL: bundleURL, resourceURL: resourceURL)
         XCTAssertEqual(resolved?.standardizedFileURL.path, engineRoot.standardizedFileURL.path)
+    }
+
+    func testResolveBundledEngineRootFallsBackToSearchingFromBundleURL() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let bundleURL = root.appendingPathComponent("Workbench.app", isDirectory: true)
+        let cliPath = root.appendingPathComponent("src", isDirectory: true).appendingPathComponent("cli.js")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cliPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: cliPath.path, contents: Data(), attributes: nil)
+
+        let resolved = WorkspaceStore.resolveBundledEngineRoot(bundleURL: bundleURL, resourceURL: nil)
+        XCTAssertEqual(resolved?.standardizedFileURL.path, root.standardizedFileURL.path)
     }
 
     func testResolveNodeExecutablePrefersExplicitEnvironmentOverride() throws {
