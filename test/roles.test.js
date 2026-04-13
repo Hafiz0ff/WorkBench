@@ -35,6 +35,10 @@ test('scaffolds built-in role profiles', async () => {
     'performance-optimizer.md',
     'refactoring-strategist.md',
     'release-engineer.md',
+    'api-designer.md',
+    'migration-engineer.md',
+    'qa-analyst.md',
+    'bug-hunter.md',
     'software-architect.md',
     'code-reviewer.md',
     'debugging-expert.md',
@@ -55,6 +59,7 @@ test('loads and parses role files', async () => {
     await loadRoleProfile(root, 'software-architect'),
     await loadRoleProfile(root, 'release-engineer'),
     await loadRoleProfile(root, 'performance-optimizer'),
+    await loadRoleProfile(root, 'api-designer'),
   ];
 
   assert.equal(profiles[0].name, 'software-architect');
@@ -71,6 +76,10 @@ test('loads and parses role files', async () => {
   assert.equal(profiles[2].name, 'performance-optimizer');
   assert.match(profiles[2].description, /производительност|ускор/i);
   assert.ok(profiles[2].dont.length >= 1);
+
+  assert.equal(profiles[3].name, 'api-designer');
+  assert.match(profiles[3].description, /api|контракт|интерфейс/i);
+  assert.ok(profiles[3].goals.length >= 2);
 });
 
 test('persists the active role in state.json', async () => {

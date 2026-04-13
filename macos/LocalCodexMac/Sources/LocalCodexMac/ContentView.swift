@@ -74,6 +74,10 @@ struct ContentView: View {
                 await store.refreshSnapshot()
             }
         }
+        .task(id: store.selectedSection) {
+            guard store.selectedProjectRoot != nil else { return }
+            await store.refreshSnapshot()
+        }
     }
 
     private var detailTitle: String {
