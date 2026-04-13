@@ -29,6 +29,12 @@ test('scaffolds built-in role profiles', async () => {
   const rolesRoot = path.join(root, '.local-codex', 'prompts', 'roles');
   const files = [
     'senior-engineer.md',
+    'frontend-engineer.md',
+    'backend-engineer.md',
+    'test-engineer.md',
+    'performance-optimizer.md',
+    'refactoring-strategist.md',
+    'release-engineer.md',
     'software-architect.md',
     'code-reviewer.md',
     'debugging-expert.md',
@@ -45,13 +51,26 @@ test('loads and parses role files', async () => {
   const root = await createTempProject();
   await scaffoldBuiltInRoles(root);
 
-  const profile = await loadRoleProfile(root, 'software-architect');
-  assert.equal(profile.name, 'software-architect');
-  assert.match(profile.description, /границ|интерфейс|миграц/i);
-  assert.ok(profile.goals.length >= 2);
-  assert.ok(profile.behavioralRules.length >= 1);
-  assert.ok(profile.toolUsageGuidance.length >= 1);
-  assert.ok(profile.outputStyle.length >= 1);
+  const profiles = [
+    await loadRoleProfile(root, 'software-architect'),
+    await loadRoleProfile(root, 'release-engineer'),
+    await loadRoleProfile(root, 'performance-optimizer'),
+  ];
+
+  assert.equal(profiles[0].name, 'software-architect');
+  assert.match(profiles[0].description, /границ|интерфейс|миграц/i);
+  assert.ok(profiles[0].goals.length >= 2);
+  assert.ok(profiles[0].behavioralRules.length >= 1);
+  assert.ok(profiles[0].toolUsageGuidance.length >= 1);
+  assert.ok(profiles[0].outputStyle.length >= 1);
+
+  assert.equal(profiles[1].name, 'release-engineer');
+  assert.match(profiles[1].description, /релиз|сборк|упаковк/i);
+  assert.ok(profiles[1].do.length >= 1);
+
+  assert.equal(profiles[2].name, 'performance-optimizer');
+  assert.match(profiles[2].description, /производительност|ускор/i);
+  assert.ok(profiles[2].dont.length >= 1);
 });
 
 test('persists the active role in state.json', async () => {

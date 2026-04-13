@@ -162,6 +162,10 @@ app roles use software-architect
 app roles current
 ```
 
+Built-in role profiles now include `frontend-engineer`, `backend-engineer`, `test-engineer`, `performance-optimizer`, `refactoring-strategist`, `release-engineer`, plus the core roles for architecture, review, debugging, design, and product thinking.
+
+Встроенные профили ролей теперь включают `frontend-engineer`, `backend-engineer`, `test-engineer`, `performance-optimizer`, `refactoring-strategist`, `release-engineer`, а также базовые роли для архитектуры, ревью, отладки, дизайна и продуктового мышления.
+
 ### Tasks / Задачи
 
 ```bash
