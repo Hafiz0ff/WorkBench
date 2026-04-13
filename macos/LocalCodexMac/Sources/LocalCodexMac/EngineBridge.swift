@@ -41,10 +41,54 @@ protocol CLICommandRunning: Sendable {
 final class EngineBridge: @unchecked Sendable {
     let engineRoot: URL
     let cliURL: URL
+    let nodeExecutableURL: URL?
 
-    init(engineRoot: URL) {
+    init(engineRoot: URL, nodeExecutableURL: URL? = nil) {
         self.engineRoot = engineRoot
         self.cliURL = engineRoot.appendingPathComponent("src/cli.js")
+        self.nodeExecutableURL = nodeExecutableURL ?? EngineBridge.resolveNodeExecutable()
+    }
+
+    static func resolveNodeExecutable(
+        fileManager: FileManager = .default,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        let explicitVariables = ["LOCALCODEX_NODE_BINARY", "WORKBENCH_NODE_BINARY", "NODE_BINARY"]
+        for key in explicitVariables {
+            if let rawPath = environment[key], !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let url = URL(fileURLWithPath: rawPath)
+                if fileManager.isExecutableFile(atPath: url.path) {
+                    return url
+                }
+            }
+        }
+
+        let standardPaths = [
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+            "/usr/bin/node",
+        ]
+        for candidate in standardPaths {
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return URL(fileURLWithPath: candidate)
+            }
+        }
+
+        let nvmRoot = homeDirectory
+            .appendingPathComponent(".nvm", isDirectory: true)
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent("node", isDirectory: true)
+        if let versions = try? fileManager.contentsOfDirectory(at: nvmRoot, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+            for versionDirectory in versions.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
+                let node = versionDirectory.appendingPathComponent("bin", isDirectory: true).appendingPathComponent("node")
+                if fileManager.isExecutableFile(atPath: node.path) {
+                    return node
+                }
+            }
+        }
+
+        return nil
     }
 
     static func detectEngineRoot(startingAt url: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) -> URL? {
@@ -71,8 +115,17 @@ final class EngineBridge: @unchecked Sendable {
             let stdoutData = OutputAccumulator()
             let stderrData = OutputAccumulator()
 
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["node", cliURL.path] + arguments
+            guard let nodeExecutableURL else {
+                continuation.resume(throwing: NSError(
+                    domain: "LocalCodexMac.EngineBridge",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Node.js executable not found."]
+                ))
+                return
+            }
+
+            process.executableURL = nodeExecutableURL
+            process.arguments = [cliURL.path] + arguments
             process.currentDirectoryURL = currentDirectory ?? engineRoot
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
@@ -89,7 +142,7 @@ final class EngineBridge: @unchecked Sendable {
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
                 continuation.resume(returning: EngineCommandResult(
-                    command: "node",
+                    command: nodeExecutableURL.path,
                     arguments: arguments,
                     exitCode: proc.terminationStatus,
                     stdout: stdoutData.string(),
