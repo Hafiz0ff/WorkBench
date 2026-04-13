@@ -227,40 +227,44 @@ struct RolesView: View {
                     : roles.filter { $0.name.localizedCaseInsensitiveContains(filterText) || $0.description.localizedCaseInsensitiveContains(filterText) }
 
                 if !visibleRoles.isEmpty {
-                    List(visibleRoles) { role in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(role.name)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Text(role.description)
-                                .foregroundStyle(.secondary)
-                                .font(.subheadline)
-                                .lineLimit(2)
-                                .truncationMode(.tail)
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 12) {
-                                    Button(store.localeStore.text("gui.roles.use")) {
-                                        Task { await store.useRole(role.name) }
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(visibleRoles) { role in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(role.name)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(role.description)
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline)
+                                    .lineLimit(2)
+                                    .truncationMode(.tail)
+                                ViewThatFits(in: .horizontal) {
+                                    HStack(spacing: 12) {
+                                        Button(store.localeStore.text("gui.roles.use")) {
+                                            Task { await store.useRole(role.name) }
+                                        }
+                                        Button(store.localeStore.text("gui.roles.inspect")) {
+                                            Task { await store.inspectRole(role.name) }
+                                        }
+                                        Spacer()
                                     }
-                                    Button(store.localeStore.text("gui.roles.inspect")) {
-                                        Task { await store.inspectRole(role.name) }
-                                    }
-                                    Spacer()
-                                }
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button(store.localeStore.text("gui.roles.use")) {
-                                        Task { await store.useRole(role.name) }
-                                    }
-                                    Button(store.localeStore.text("gui.roles.inspect")) {
-                                        Task { await store.inspectRole(role.name) }
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Button(store.localeStore.text("gui.roles.use")) {
+                                            Task { await store.useRole(role.name) }
+                                        }
+                                        Button(store.localeStore.text("gui.roles.inspect")) {
+                                            Task { await store.inspectRole(role.name) }
+                                        }
                                     }
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(.quaternary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.quaternary.opacity(0.7)))
                         }
-                        .padding(.vertical, 6)
                     }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.roles.empty"),
