@@ -47,6 +47,10 @@ function renderTaskContextLayer(taskContext) {
   return taskContext?.trim() || 'Текущий контекст задачи пока не задан.';
 }
 
+function renderConversationSummaryLayer(conversationSummary) {
+  return conversationSummary?.trim() || 'Краткая сводка истории диалога пока не сформирована.';
+}
+
 function renderTaskInstructionLayer(taskInstruction) {
   return taskInstruction?.trim() || 'Инструкция для текущей задачи не задана.';
 }
@@ -80,6 +84,7 @@ export async function composePromptLayers({
   roleProfile,
   memorySummary,
   taskContext,
+  conversationSummary,
   extensionPrompts,
   taskInstruction,
   allowedShellCommands,
@@ -125,6 +130,11 @@ export async function composePromptLayers({
       content: renderTaskContextLayer(taskContext),
     },
     {
+      key: 'conversationSummary',
+      title: 'КРАТКАЯ СВОДКА ИСТОРИИ ДИАЛОГА',
+      content: renderConversationSummaryLayer(conversationSummary),
+    },
+    {
       key: 'taskInstruction',
       title: 'ИНСТРУКЦИЯ ТЕКУЩЕЙ ЗАДАЧИ',
       content: renderTaskInstructionLayer(taskInstruction),
@@ -137,7 +147,8 @@ export async function composePromptLayers({
     section('=== ПАМЯТЬ ПРОЕКТА ===', layers[2].content),
     section('=== ПОДКЛЮЧЕННЫЕ ПАКЕТЫ ПРОМПТОВ ===', layers[3].content),
     section('=== КОНТЕКСТ ТЕКУЩЕЙ ЗАДАЧИ ===', layers[4].content),
-    section('=== ИНСТРУКЦИЯ ТЕКУЩЕЙ ЗАДАЧИ ===', layers[5].content),
+    section('=== КРАТКАЯ СВОДКА ИСТОРИИ ДИАЛОГА ===', layers[5].content),
+    section('=== ИНСТРУКЦИЯ ТЕКУЩЕЙ ЗАДАЧИ ===', layers[6].content),
   ].join('\n\n');
 
   return {

@@ -2,11 +2,11 @@
 
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
+import path from 'node:path';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { listModels } from './ollama.js';
 import { openProject, formatProjectTree } from './project.js';
 import { runInteractiveAgent } from './agent.js';
 import { createTranslator, normalizeLocaleCode } from './i18n.js';
@@ -42,6 +42,7 @@ import {
   showTask,
   getCurrentTask,
   setCurrentTask,
+  setTaskLastSessionId,
   generateTaskPlan,
   appendTaskNote,
   markTaskDone,
@@ -49,6 +50,7 @@ import {
   getTaskWorkspaceStatus,
   getCurrentTaskContext,
   resolveTask,
+  getTaskWorkspaceRoot,
 } from './tasks.js';
 import {
   ensureExtensionsWorkspace,
@@ -74,7 +76,48 @@ import {
   ensureRegistryWorkspace,
 } from './registry.js';
 import { prepareProjectWorkspace } from './workspace-bootstrap.js';
+import {
+  ensureProvidersWorkspace,
+  getContextWindowConfig,
+  getProvider,
+  listProviderSummaries,
+  setProviderApiKey,
+  useProvider,
+} from './providers/index.js';
 import { BASE_SYSTEM_INSTRUCTIONS, composePromptLayers, formatPromptInspection } from './prompt-composer.js';
+import {
+  abortRun as abortAutoRun,
+  getRunStatus as getAutoRunStatus,
+  listRuns as listAutoRuns,
+  planPhase as planAutoPhase,
+  runAuto as runAutoAgent,
+} from './auto-agent.js';
+import {
+  detectRunner,
+  getHistory as getTestRunHistory,
+  getTestRunLogPath,
+  getTestRunnerConfig,
+  pruneHistory as pruneTestRunHistory,
+  readTestRunLog,
+  runConfiguredTests,
+  runTests,
+  updatePolicyWithDetectedRunner,
+} from './test-runner.js';
+import {
+  appendMessage as appendConversationMessage,
+  clearHistory as clearConversationHistory,
+  createMessageId,
+  createSessionId,
+  exportToJson as exportConversationToJson,
+  exportToMarkdown as exportConversationToMarkdown,
+  listConversationStats,
+  listSessions as listConversationSessions,
+  prepareConversationContext,
+  readConversationSummary,
+  readHistory as readConversationHistory,
+  readRecent as readRecentConversationMessages,
+  readSession as readConversationSession,
+} from './conversation.js';
 import {
   applyPatchArtifact,
   formatPatchDiff,
@@ -92,6 +135,10 @@ function parseOptions(argv) {
       options.model = argv[++i];
       continue;
     }
+    if (value === '--provider') {
+      options.provider = argv[++i];
+      continue;
+    }
     if (value === '--role') {
       options.role = argv[++i];
       continue;
@@ -100,8 +147,20 @@ function parseOptions(argv) {
       options.depth = Number(argv[++i]);
       continue;
     }
+    if (value === '--limit') {
+      options.limit = Number(argv[++i]);
+      continue;
+    }
     if (value === '--task') {
       options.task = argv[++i];
+      continue;
+    }
+    if (value === '--session') {
+      options.session = argv[++i];
+      continue;
+    }
+    if (value === '--run-id') {
+      options.runId = argv[++i];
       continue;
     }
     if (value === '--title') {
@@ -120,6 +179,10 @@ function parseOptions(argv) {
       options.path = argv[++i];
       continue;
     }
+    if (value === '--output') {
+      options.output = argv[++i];
+      continue;
+    }
     if (value === '--ref') {
       options.ref = argv[++i];
       continue;
@@ -130,6 +193,18 @@ function parseOptions(argv) {
     }
     if (value === '--text') {
       options.text = argv[++i];
+      continue;
+    }
+    if (value === '--command') {
+      options.command = argv[++i];
+      continue;
+    }
+    if (value === '--cwd') {
+      options.cwd = argv[++i];
+      continue;
+    }
+    if (value === '--format') {
+      options.format = argv[++i];
       continue;
     }
     if (value === '--file') {
@@ -143,6 +218,42 @@ function parseOptions(argv) {
     }
     if (value === '--yes' || value === '-y') {
       options.yes = true;
+      continue;
+    }
+    if (value === '--clear') {
+      options.clear = true;
+      continue;
+    }
+    if (value === '--dry-run') {
+      options.dryRun = true;
+      continue;
+    }
+    if (value === '--no-tests') {
+      options.noTests = true;
+      continue;
+    }
+    if (value === '--max-steps') {
+      options.maxSteps = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--timeout') {
+      options.timeout = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--retry-max') {
+      options.retryMax = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--status') {
+      options.status = argv[++i];
+      continue;
+    }
+    if (value === '--test-command') {
+      options.testCommand = argv[++i];
+      continue;
+    }
+    if (value === '--abort-on-test-fail') {
+      options.abortOnTestFail = true;
       continue;
     }
     options._.push(value);
@@ -159,6 +270,17 @@ function formatDate(value, locale) {
     timeStyle: 'short',
     timeZone: 'UTC',
   }).format(new Date(value));
+}
+
+function deriveTaskTitle(taskText) {
+  const firstLine = String(taskText || '')
+    .split(/\r?\n/, 1)[0]
+    .trim()
+    .replace(/[.!?…]+$/u, '');
+  if (!firstLine) {
+    return 'Новая задача';
+  }
+  return firstLine.split(/\s+/).slice(0, 8).join(' ').slice(0, 64);
 }
 
 function printUsage(t) {
@@ -194,6 +316,243 @@ function formatPatchStateLabel(t, status) {
 
 function formatExtensionStatusLabel(t, enabled) {
   return enabled ? t('extensions.statusEnabled') : t('extensions.statusDisabled');
+}
+
+function formatProviderStatusLabel(t, enabled) {
+  return enabled ? t('provider.statusEnabled') : t('provider.statusDisabled');
+}
+
+function formatProviderHealthLabel(t, health) {
+  if (!health) {
+    return t('provider.healthUnknown');
+  }
+  if (health.code === 'disabled') {
+    return t('provider.healthDisabled');
+  }
+  if (health.ok) {
+    return t('provider.healthOk');
+  }
+  return t('provider.healthFailed', { reason: health.message || t('common.notSet') });
+}
+
+function getTaskFolderPath(projectRoot, task) {
+  if (!task) {
+    return null;
+  }
+  return path.join(getTaskWorkspaceRoot(projectRoot), task.location || 'active', task.id);
+}
+
+function formatConversationSpeaker(role) {
+  switch (role) {
+    case 'assistant':
+      return '🤖';
+    case 'system':
+      return '🛠️';
+    default:
+      return '👤';
+  }
+}
+
+function formatConversationMessage(message, locale) {
+  return [
+    `[${formatDate(message.timestamp, locale)}] ${formatConversationSpeaker(message.role)} ${message.content}`,
+  ].join('\n');
+}
+
+function formatSessionSummary(session, locale) {
+  const providers = session.providers.length ? session.providers.join(', ') : '—';
+  const models = session.models.length ? session.models.join(', ') : '—';
+  return [
+    `${session.sessionId}   ${formatDate(session.startedAt, locale)}   ${session.messageCount} ${locale === 'ru' ? 'сообщений' : 'messages'}   ${providers}/${models}`,
+  ].join('\n');
+}
+
+function formatAutoRunStep(step, locale, t) {
+  const status = String(step.status || 'pending');
+  const iconMap = {
+    completed: '✅',
+    running: '🔄',
+    failed: '❌',
+    skipped: '⏭',
+    pending: '⏳',
+  };
+  const statusLabel = {
+    completed: t('task.autoStepCompleted', { attempts: step.attempts || 1 }),
+    running: t('task.autoStepRunning'),
+    failed: t('task.autoStepFailed', { error: step.error || t('common.notSet') }),
+    skipped: t('task.autoStepSkipped'),
+    pending: t('task.autoStepPending'),
+  }[status] || status;
+  return `${iconMap[status] || '•'} ${step.stepId}: ${step.title} — ${statusLabel}`;
+}
+
+function formatAutoRunStatus(run, task, locale, t) {
+  if (!run) {
+    return t('task.autoRunNotFound');
+  }
+  const steps = Array.isArray(run.plan) ? run.plan : [];
+  const completed = steps.filter((step) => step.status === 'completed').length;
+  const runningIndex = steps.findIndex((step) => step.status === 'running');
+  const stateLabel = {
+    planned: t('task.autoRunPlanned'),
+    running: runningIndex >= 0
+      ? t('task.autoRunRunning', { current: runningIndex + 1, total: steps.length || run.plan?.length || 0 })
+      : t('task.autoRunRunningGeneric'),
+    aborted: t('task.autoRunAborted'),
+    completed: t('task.autoRunCompleted'),
+  }[run.status] || run.status;
+  return [
+    t('task.autoRunTitle', { runId: run.runId }),
+    `${t('task.request')}: ${run.request || task?.userRequest || t('common.notSet')}`,
+    `${t('task.currentTitle')}: ${task ? `${task.id}${task.title ? ` (${task.title})` : ''}` : t('common.notSet')}`,
+    `${t('task.status')}: ${stateLabel}`,
+    `${t('task.autoRunProvider')}: ${run.provider || t('common.notSet')}`,
+    `${t('task.model')}: ${run.model || t('common.notSet')}`,
+    `${t('task.autoRunSession')}: ${run.sessionId || t('common.notSet')}`,
+    `${t('task.autoRunSteps')}: ${completed}/${steps.length}`,
+    '',
+    ...steps.map((step) => formatAutoRunStep(step, locale, t)),
+  ].join('\n');
+}
+
+function formatAutoPlan(plan, request, locale, t) {
+  const lines = [
+    t('task.autoPlanTitle', { request }),
+    '────────────────────────────────',
+  ];
+  for (const [index, step] of plan.entries()) {
+    lines.push(`${index + 1}. ${step.title}`);
+    if (step.description) {
+      lines.push(`   ${step.description}`);
+    }
+    if (Array.isArray(step.files) && step.files.length) {
+      lines.push(`   ${t('task.autoStepFiles')}: ${step.files.join(', ')}`);
+    }
+  }
+  lines.push('');
+  lines.push(t('task.autoPlanCount', { count: plan.length }));
+  return lines.join('\n');
+}
+
+function formatTestSummary(run, t, locale) {
+  const summary = run.summary || {};
+  const total = Number.isFinite(summary.total) ? summary.total : ((summary.passed || 0) + (summary.failed || 0) + (summary.skipped || 0));
+  const passed = Number.isFinite(summary.passed) ? summary.passed : 0;
+  const failed = Number.isFinite(summary.failed) ? summary.failed : 0;
+  const skipped = Number.isFinite(summary.skipped) ? summary.skipped : 0;
+  const duration = Number.isFinite(run.duration) ? `${(run.duration / 1000).toFixed(1)}s` : '—';
+  const statusLabel = t(`test.status.${run.status}`);
+  return [
+    `${run.runId}   ${formatDate(run.startedAt, locale)}   ${statusLabel}   ${passed}/${total || passed + failed + skipped}   ${duration}   ${run.patchId || '—'}`,
+  ].join('\n');
+}
+
+function formatTestRunDetails(run, t, locale) {
+  const summary = run.summary || {};
+  const lines = [
+    `${t('test.runTitle')}: ${run.runId}`,
+    `${t('common.currentTask')}: ${run.taskId || t('common.notSet')}`,
+    `${t('test.command')}: ${run.command || t('common.notSet')}`,
+    `${t('test.runner')}: ${run.runner || t('common.notSet')}`,
+    `${t('test.statusLabel')}: ${t(`test.status.${run.status}`)}`,
+    `${t('test.duration')}: ${Number.isFinite(run.duration) ? `${(run.duration / 1000).toFixed(1)}s` : '—'}`,
+    `${t('test.summary')}: ${Number.isFinite(summary.passed) ? summary.passed : 0}/${Number.isFinite(summary.total) ? summary.total : 0} (${Number.isFinite(summary.failed) ? summary.failed : 0} failed)`,
+    '',
+    run.output || t('test.noOutput'),
+  ];
+  if (Array.isArray(run.failedTests) && run.failedTests.length) {
+    lines.push('');
+    lines.push(t('test.failedTests'));
+    for (const item of run.failedTests) {
+      lines.push(`- ${item.name}${item.error ? `: ${item.error}` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatTestRunnerConfig(config, t) {
+  const runners = Array.isArray(config.runners) ? config.runners : [];
+  const lines = [
+    `${t('test.configTitle')}`,
+    `${t('test.command')}: ${config.command || t('common.notSet')}`,
+    `${t('test.cwd')}: ${config.cwd || t('common.notSet')}`,
+    `${t('test.timeout')}: ${Number.isFinite(config.timeout) ? `${Math.floor(config.timeout / 1000)}s` : '—'}`,
+    `${t('test.autoRunOnPatchApply')}: ${config.autoRun?.onPatchApply ? t('common.yes') : t('common.no')}`,
+    `${t('test.autoRunOnAutoStep')}: ${config.autoRun?.onAutoStep ? t('common.yes') : t('common.no')}`,
+    `${t('test.onFail')}: ${config.onFail?.action || t('common.notSet')}`,
+    `${t('test.historyKeepLast')}: ${config.history?.keepLast || t('common.notSet')}`,
+  ];
+  if (runners.length) {
+    lines.push(t('test.runnersTitle'));
+    for (const runner of runners) {
+      lines.push(`- ${runner.name || 'runner'}: ${runner.command}${runner.cwd ? ` (cwd: ${runner.cwd})` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+async function resolveConversationExportPath(projectRoot, task, format, output) {
+  const extension = format === 'json' ? 'json' : 'md';
+  const defaultName = `task-${task.slug || task.id}-history.${extension}`;
+  if (!output) {
+    return path.join(projectRoot, defaultName);
+  }
+  const resolved = path.resolve(projectRoot, output);
+  const stats = await fsStatIfExists(resolved);
+  if (stats?.isDirectory()) {
+    return path.join(resolved, defaultName);
+  }
+  if (path.extname(resolved)) {
+    return resolved;
+  }
+  return path.join(resolved, defaultName);
+}
+
+async function fsStatIfExists(filePath) {
+  try {
+    return await stat(filePath);
+  } catch {
+    return null;
+  }
+}
+
+async function loadConversationBundle(projectRoot, task, { provider, model, locale }) {
+  if (!task) {
+    return {
+      summary: '',
+      recentMessages: [],
+      totalMessages: 0,
+      sessionCount: 0,
+      summaryGenerated: false,
+      contextWindow: null,
+      conversationPath: null,
+    };
+  }
+  const contextWindow = await getContextWindowConfig(projectRoot);
+  const taskDir = getTaskFolderPath(projectRoot, task);
+  const bundle = await prepareConversationContext(taskDir, {
+    provider,
+    model,
+    historyMessages: contextWindow.historyMessages,
+    summarizeAfter: contextWindow.summarizeAfter,
+    locale,
+  });
+  return {
+    ...bundle,
+    contextWindow,
+    taskDir,
+    conversationPath: taskDir ? path.join(taskDir, 'conversation.jsonl') : null,
+  };
+}
+
+function printProviderSummary(entry, t) {
+  console.log(`${entry.selected ? '●' : '◦'} ${entry.name}`);
+  console.log(`  ${t('provider.status')}: ${formatProviderStatusLabel(t, entry.enabled)}`);
+  console.log(`  ${t('provider.defaultModel')}: ${entry.defaultModel || t('common.notSet')}`);
+  console.log(`  ${t('provider.health')}: ${formatProviderHealthLabel(t, entry.health)}`);
+  if (entry.baseUrl) {
+    console.log(`  ${t('provider.baseUrl')}: ${entry.baseUrl}`);
+  }
 }
 
 function printExtensionSummary(entry, t) {
@@ -334,6 +693,13 @@ async function handleProjectCommand(subcommand, t, locale) {
 
   if (subcommand === 'init') {
     const { memoryRoot } = await prepareProjectWorkspace(projectRoot);
+    const policy = await readProjectPolicy(projectRoot);
+    const runnerConfig = policy.testRunner || {};
+    const hasRunnerConfig = Boolean(runnerConfig.command) || (Array.isArray(runnerConfig.runners) && runnerConfig.runners.length > 0);
+    if (!hasRunnerConfig) {
+      const detected = await detectRunner(projectRoot);
+      await updatePolicyWithDetectedRunner(projectRoot, detected);
+    }
     console.log(t('project.initialized', { path: memoryRoot }));
     return;
   }
@@ -357,6 +723,7 @@ async function handleProjectCommand(subcommand, t, locale) {
     console.log(t('common.createdAt', { value: formatDate(status.createdAt, locale) }));
     console.log(t('common.updatedAt', { value: formatDate(status.updatedAt, locale) }));
     console.log(t('common.lastRefresh', { value: formatDate(status.lastRefreshAt, locale) }));
+    console.log(t('common.selectedProvider', { provider: status.selectedProvider || t('common.notSet') }));
     console.log(t('common.activeRole', { role: status.activeRole || t('common.notSet') }));
     console.log(t('common.selectedModel', { model: status.selectedModel || t('common.notSet') }));
     console.log(t('policy.approvalModeLabel', { mode: t(`policy.approvalMode.${policy.approvalMode}`) }));
@@ -383,6 +750,152 @@ async function handleProjectCommand(subcommand, t, locale) {
   if (subcommand === 'summary') {
     const summary = await summarizeCurrentMemory(projectRoot);
     console.log(`${t('project.summaryHeader')}\n${summary}`);
+    return;
+  }
+
+  printUsage(t);
+}
+
+async function handleProviderCommand(subcommand, options, t, locale) {
+  const projectRoot = process.cwd();
+  await ensureProvidersWorkspace(projectRoot);
+
+  if (subcommand === 'list') {
+    const catalog = await listProviderSummaries(projectRoot);
+    console.log(t('provider.listTitle'));
+    console.log(t('provider.defaultLabel', { provider: catalog.defaultProvider }));
+    for (const entry of catalog.providers) {
+      printProviderSummary(entry, t);
+      console.log('');
+    }
+    return;
+  }
+
+  if (subcommand === 'use') {
+    const name = options._[0];
+    if (!name) {
+      throw new Error(t('common.missingProviderName'));
+    }
+    const provider = await useProvider(projectRoot, name);
+    console.log(t('provider.used', { provider: provider.name, model: provider.defaultModel }));
+    return;
+  }
+
+  if (subcommand === 'set-key') {
+    const name = options._[0];
+    const key = options._[1];
+    if (!name) {
+      throw new Error(t('common.missingProviderName'));
+    }
+    if (!key) {
+      throw new Error(t('common.missingProviderKey'));
+    }
+    const provider = await setProviderApiKey(projectRoot, name, key);
+    console.log(t('provider.keySaved', { provider: name }));
+    console.log(t('provider.providerEnabled', { provider: name, model: provider.defaultModel }));
+    return;
+  }
+
+  if (subcommand === 'health') {
+    const catalog = await listProviderSummaries(projectRoot);
+    console.log(t('provider.healthTitle'));
+    for (const entry of catalog.providers.filter((provider) => provider.enabled)) {
+      const label = entry.health.ok
+        ? t('provider.healthOk')
+        : t('provider.healthFailed', { reason: entry.health.message || t('common.notSet') });
+      console.log(`${entry.name}: ${label}`);
+    }
+    return;
+  }
+
+  printUsage(t);
+}
+
+async function handleTestCommand(subcommand, options, t, locale) {
+  const projectRoot = process.cwd();
+  const policy = await readProjectPolicy(projectRoot);
+  await ensureProvidersWorkspace(projectRoot);
+
+  if (subcommand === 'run') {
+    const detected = await detectRunner(projectRoot);
+    const command = options.command || policy.testRunner?.command || detected.command;
+    const result = await runTests({
+      projectRoot,
+      policy,
+      command,
+      cwd: options.cwd || policy.testRunner?.cwd || null,
+      timeout: options.timeout || policy.testRunner?.timeout || 120000,
+      env: policy.testRunner?.env || {},
+      allowApprovalBypass: true,
+    });
+    console.log(`${t('test.runTitle')}: ${result.command}`);
+    console.log(`${t('test.statusLabel')}: ${t(`test.status.${result.status}`)}`);
+    console.log(`${t('test.summary')}: ${result.summary ? `${result.summary.passed || 0}/${result.summary.total || 0}` : '—'}`);
+    console.log(`${t('test.duration')}: ${Number.isFinite(result.duration) ? `${(result.duration / 1000).toFixed(1)}s` : '—'}`);
+    if (result.failedTests.length) {
+      console.log('');
+      console.log(t('test.failedTests'));
+      for (const item of result.failedTests) {
+        console.log(`- ${item.name}${item.error ? `: ${item.error}` : ''}`);
+      }
+    }
+    if (result.output) {
+      console.log('');
+      console.log(result.output);
+    }
+    return;
+  }
+
+  if (subcommand === 'history') {
+    const history = await getTestRunHistory(projectRoot, {
+      limit: options.limit || 20,
+      status: options.status || null,
+    });
+    console.log(t('test.historyTitle'));
+    if (!history.length) {
+      console.log(t('test.historyEmpty'));
+      return;
+    }
+    for (const run of history) {
+      console.log(formatTestSummary(run, t, locale));
+    }
+    return;
+  }
+
+  if (subcommand === 'show') {
+    const runId = options._[0];
+    if (!runId) {
+      throw new Error(t('common.missingRunId'));
+    }
+    const history = await getTestRunHistory(projectRoot, {});
+    const run = history.find((entry) => entry.runId === runId);
+    if (!run) {
+      console.log(t('test.runNotFound', { id: runId }));
+      return;
+    }
+    const log = await readTestRunLog(projectRoot, runId).catch(() => '');
+    console.log(formatTestRunDetails({ ...run, output: log }, t, locale));
+    return;
+  }
+
+  if (subcommand === 'detect') {
+    const detected = await detectRunner(projectRoot);
+    console.log(t('test.detectTitle'));
+    console.log(`${t('test.detectRunner')}: ${detected.name}`);
+    console.log(`${t('test.command')}: ${detected.command}`);
+    console.log(`${t('test.cwd')}: ${detected.cwd || t('common.notSet')}`);
+    console.log(`${t('test.source')}: ${detected.source || t('common.notSet')}`);
+    const approve = options.yes || await promptConfirmation(t('test.detectSavePrompt'));
+    if (approve) {
+      await updatePolicyWithDetectedRunner(projectRoot, detected);
+      console.log(t('test.detectSaved'));
+    }
+    return;
+  }
+
+  if (subcommand === 'config') {
+    const config = await getTestRunnerConfig(projectRoot);
+    console.log(formatTestRunnerConfig(config, t));
     return;
   }
 
@@ -516,6 +1029,20 @@ async function handlePromptCommand(subcommand, options, t, locale) {
   await scaffoldBuiltInRoles(projectRoot);
   const roleProfile = await resolveRoleSelection(projectRoot, options.role || null);
   const memorySummary = await summarizeCurrentMemory(projectRoot);
+  const currentTask = await getCurrentTask(projectRoot);
+  const state = await readProjectState(projectRoot);
+  const provider = await getProvider(projectRoot, state?.selectedProvider || null);
+  const model = state?.selectedModel || provider.defaultModel;
+  const taskConversation = currentTask
+    ? await loadConversationBundle(projectRoot, currentTask, { provider, model, locale })
+    : {
+      summary: '',
+      recentMessages: [],
+      totalMessages: 0,
+      sessionCount: 0,
+      summaryGenerated: false,
+      contextWindow: null,
+    };
   const taskContext = await getCurrentTaskContext(projectRoot, locale);
   const extensionPrompts = await listEnabledExtensionPromptPacks(projectRoot);
   const taskInstruction = options.task || '';
@@ -525,6 +1052,7 @@ async function handlePromptCommand(subcommand, options, t, locale) {
     roleProfile,
     memorySummary,
     taskContext,
+    conversationSummary: taskConversation.summary,
     extensionPrompts,
     taskInstruction,
     allowedShellCommands,
@@ -611,9 +1139,18 @@ async function handleTaskCommand(subcommand, options, t, locale) {
     if (!id) {
       throw new Error(t('common.missingTaskId'));
     }
+    const state = await readProjectState(projectRoot);
+    const provider = await getProvider(projectRoot, state?.selectedProvider || null);
+    const model = state?.selectedModel || provider.defaultModel;
     const currentContext = await getCurrentTaskContext(projectRoot, locale);
+    const currentTask = await getCurrentTask(projectRoot);
+    const taskConversation = currentTask
+      ? await loadConversationBundle(projectRoot, currentTask, { provider, model, locale })
+      : {
+        summary: '',
+      };
     const memorySummary = await summarizeCurrentMemory(projectRoot);
-    const context = [memorySummary, currentContext].filter(Boolean).join('\n\n');
+    const context = [memorySummary, currentContext, taskConversation.summary].filter(Boolean).join('\n\n');
     const result = await generateTaskPlan(projectRoot, id, { locale, context });
     console.log(t('task.planGenerated', { id: result.task.id }));
     console.log(`${t('common.file')}: ${result.planPath}`);
@@ -652,6 +1189,326 @@ async function handleTaskCommand(subcommand, options, t, locale) {
     }
     const task = await archiveTask(projectRoot, id, { locale });
     console.log(t('task.archived', { id: task.id }));
+    return;
+  }
+
+  if (subcommand === 'history') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const taskDir = getTaskFolderPath(projectRoot, task);
+    if (options.clear) {
+      const stats = await listConversationStats(taskDir);
+      if (!options.yes) {
+        const approved = await promptConfirmation(t('task.historyClearPrompt', {
+          count: stats.messageCount,
+          id: task.id,
+        }));
+        if (!approved) {
+          console.log(t('task.historyClearRejected'));
+          return;
+        }
+      }
+      await clearConversationHistory(taskDir);
+      await setTaskLastSessionId(projectRoot, task.id, null, locale);
+      console.log(t('task.historyCleared', { id: task.id }));
+      return;
+    }
+
+    const sessionId = options.session || null;
+    const limit = Number.isFinite(options.limit) ? options.limit : 20;
+    const history = sessionId
+      ? await readConversationSession(taskDir, sessionId)
+      : await readRecentConversationMessages(taskDir, limit);
+    const stats = await listConversationStats(taskDir);
+
+    console.log(t('task.historyTitle', { id: task.id }));
+    if (!history.length) {
+      console.log(t('task.historyEmpty', { id: task.id }));
+      return;
+    }
+    for (const message of history) {
+      console.log(formatConversationMessage(message, locale));
+    }
+    console.log('');
+    const providerNames = stats.providers.length ? stats.providers.join(', ') : t('common.notSet');
+    console.log(t('task.historyFooter', {
+      sessions: stats.sessionCount,
+      messages: stats.messageCount,
+      providers: providerNames,
+    }));
+    return;
+  }
+
+  if (subcommand === 'sessions') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const taskDir = getTaskFolderPath(projectRoot, task);
+    const sessions = await listConversationSessions(taskDir);
+    console.log(t('task.sessionsTitle', { id: task.id }));
+    if (!sessions.length) {
+      console.log(t('task.sessionsEmpty'));
+      return;
+    }
+    for (const session of sessions) {
+      console.log(formatSessionSummary(session, locale));
+    }
+    return;
+  }
+
+  if (subcommand === 'export') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const taskDir = getTaskFolderPath(projectRoot, task);
+    const format = String(options.format || 'md').trim().toLowerCase() === 'json' ? 'json' : 'md';
+    const outputPath = await resolveConversationExportPath(projectRoot, task, format, options.output || null);
+    const result = format === 'json'
+      ? await exportConversationToJson(taskDir, outputPath)
+      : await exportConversationToMarkdown(taskDir, outputPath);
+    console.log(t('task.exported', { path: result.path }));
+    return;
+  }
+
+  if (subcommand === 'continue') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await setCurrentTask(projectRoot, id, locale);
+    const project = await openProject(projectRoot);
+    const state = await readProjectState(project.root);
+    const sessionId = createSessionId();
+    const provider = await getProvider(project.root, options.provider || null);
+    const model = options.model || task.model || provider.defaultModel;
+    const conversation = await loadConversationBundle(project.root, task, {
+      provider,
+      model,
+      locale,
+    });
+    await setTaskLastSessionId(project.root, task.id, sessionId, locale);
+    console.log(t('task.continueLoaded', {
+      messages: conversation.totalMessages,
+      sessions: conversation.sessionCount,
+      limit: conversation.contextWindow?.historyMessages || 20,
+    }));
+    if (conversation.summaryGenerated) {
+      console.log(t('task.conversationSummaryGenerated'));
+    }
+    console.log(t('task.continueReady'));
+    await runInteractiveAgent({
+      root: project.root,
+      model,
+      provider,
+      initialConversationHistory: conversation.recentMessages,
+      composePromptForTask: async (taskInstruction) => composePromptLayers({
+        baseInstructions: BASE_SYSTEM_INSTRUCTIONS,
+        roleProfile: await resolveRoleSelection(project.root, task.role || state?.activeRole || null),
+        memorySummary: await summarizeCurrentMemory(project.root),
+        taskContext: await getCurrentTaskContext(project.root, locale),
+        conversationSummary: conversation.summary,
+        extensionPrompts: await listEnabledExtensionPromptPacks(project.root),
+        taskInstruction,
+        allowedShellCommands: await listAllowedShellCommands(project.root),
+        projectRoot: project.root,
+      }),
+      taskTools: {
+        currentTaskId: task.id,
+        currentRole: task.role || null,
+        currentModel: model,
+        currentSessionId: sessionId,
+        appendNote: async ({ taskId, kind, text, source }) => appendTaskNote(project.root, taskId, {
+          kind,
+          text,
+          source,
+        }, { locale }),
+        onTurnComplete: async ({ userInput, assistantMessage }) => {
+          const taskDir = getTaskFolderPath(project.root, task);
+          if (userInput) {
+            await appendConversationMessage(taskDir, {
+              id: createMessageId(),
+              role: 'user',
+              content: userInput,
+              timestamp: new Date().toISOString(),
+              provider: provider.name,
+              model,
+              sessionId,
+            });
+          }
+          if (assistantMessage) {
+            await appendConversationMessage(taskDir, {
+              id: createMessageId(),
+              role: 'assistant',
+              content: assistantMessage,
+              timestamp: new Date().toISOString(),
+              provider: provider.name,
+              model,
+              sessionId,
+            });
+          }
+          await setTaskLastSessionId(project.root, task.id, sessionId, locale);
+        },
+      },
+      policy: await readProjectPolicy(project.root),
+      t,
+      promptLabel: t('agent.promptLabel'),
+      exitHint: t('agent.exitHint'),
+      helpHint: t('agent.helpHint'),
+      initialConversationHistory: conversation.recentMessages,
+    });
+    return;
+  }
+
+  if (subcommand === 'auto') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const request = options.request || options._.slice(1).join(' ').trim();
+    if (!request) {
+      throw new Error(t('common.missingTaskRequest'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const state = await readProjectState(projectRoot);
+    const provider = await getProvider(projectRoot, options.provider || state?.selectedProvider || null);
+    const model = options.model || task.model || state?.selectedModel || provider.defaultModel;
+    const policy = await readProjectPolicy(projectRoot);
+    const autoMode = policy.autoMode || {};
+    const taskInfo = await showTask(projectRoot, task.id, locale);
+    const conversationSummary = await readConversationSummary(taskInfo.folderPath);
+    const plan = await planAutoPhase(task.id, request, {
+      projectRoot,
+      provider,
+      model,
+      policy,
+      retryMax: options.retryMax || autoMode.retryMax || 3,
+      maxSteps: options.maxSteps || autoMode.maxSteps || 10,
+      memorySummary: await summarizeCurrentMemory(projectRoot),
+      taskContext: taskInfo.context,
+      conversationSummary,
+      allowedShellCommands: await listAllowedShellCommands(projectRoot),
+      locale,
+    });
+    console.log(formatAutoPlan(plan, request, locale, t));
+    if (options.dryRun) {
+      console.log('');
+      console.log(t('task.autoDryRunHint'));
+      return;
+    }
+
+    const requireApproval = autoMode.requirePlanApproval !== false && !options.yes;
+    if (requireApproval) {
+      const approved = await promptConfirmation(t('task.autoPlanApprovePrompt'));
+      if (!approved) {
+        console.log(t('task.autoPlanRejected'));
+        return;
+      }
+    }
+
+    const result = await runAutoAgent(task.id, request, {
+      projectRoot,
+      provider,
+      model,
+      policy,
+      autoMode,
+      retryMax: options.retryMax || autoMode.retryMax || 3,
+      maxSteps: options.maxSteps || autoMode.maxSteps || 10,
+      testCommand: options.testCommand || autoMode.testCommand || null,
+      noTests: options.noTests,
+      locale,
+      preplannedSteps: plan,
+    });
+    console.log(t('task.autoRunStarted', { runId: result.run.runId }));
+    console.log(t('task.autoRunCompleted', { runId: result.run.runId }));
+    if (result.summary) {
+      console.log(result.summary);
+    }
+    return;
+  }
+
+  if (subcommand === 'run-status') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const run = await getAutoRunStatus(task.id, options.runId || null, { projectRoot });
+    console.log(formatAutoRunStatus(run, task, locale, t));
+    return;
+  }
+
+  if (subcommand === 'abort') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const run = await getAutoRunStatus(task.id, options.runId || null, { projectRoot });
+    if (!run) {
+      console.log(t('task.autoRunNotFound'));
+      return;
+    }
+    const result = await abortAutoRun(task.id, run.runId, { projectRoot });
+    if (result.aborted) {
+      console.log(t('task.autoRunAborted', { runId: result.run.runId }));
+      return;
+    }
+    console.log(t('task.autoRunAbortFailed'));
+    return;
+  }
+
+  if (subcommand === 'runs') {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(t('common.missingTaskId'));
+    }
+    const task = await resolveTask(projectRoot, id);
+    if (!task) {
+      console.log(t('common.taskNotFound', { id }));
+      return;
+    }
+    const runs = await listAutoRuns(task.id, { projectRoot });
+    console.log(t('task.autoRunsTitle', { id: task.id }));
+    if (!runs.length) {
+      console.log(t('task.autoRunsEmpty'));
+      return;
+    }
+    for (const run of runs) {
+      const totalSteps = Array.isArray(run.plan) ? run.plan.length : 0;
+      const completedSteps = Array.isArray(run.plan) ? run.plan.filter((step) => step.status === 'completed').length : 0;
+      console.log(`${run.runId}   ${formatDate(run.startedAt, locale)}   ${t(`task.autoRunState.${run.status}`)}   ${completedSteps}/${totalSteps}`);
+    }
     return;
   }
 
@@ -730,17 +1587,39 @@ async function handlePatchCommand(subcommand, options, t, locale) {
     }
     let result;
     try {
-      result = await applyPatchArtifact(projectRoot, currentStatus.pending, { policy, t });
+      result = await applyPatchArtifact(projectRoot, currentStatus.pending, {
+        policy,
+        t,
+        promptApproval: () => promptConfirmation(t('patch.testsRollbackPrompt')),
+      });
     } catch (error) {
       console.log(t('patch.applyFailed', { reason: error instanceof Error ? error.message : String(error) }));
       return;
     }
     if (!result.applied) {
-      console.log(t('patch.applyFailed', { reason: result.reason || t('common.notSet') }));
+      if (result.testOutcome?.rolledBack) {
+        console.log(t('patch.applied', { id: result.patch.patchId }));
+        console.log(t('patch.testsRollback'));
+        if (result.validationResults.length) {
+          for (const validation of result.validationResults) {
+            const commandText = [validation.command, ...(validation.args || [])].filter(Boolean).join(' ');
+            const label = validation.skipped
+              ? t('patch.validationSkipped')
+              : validation.ok
+                ? t('patch.validationSuccess')
+                : t('patch.validationFailed');
+            console.log(`${commandText}: ${label}`);
+          }
+        }
+        console.log(t('patch.rollbackDone'));
+      } else {
+        console.log(t('patch.applyFailed', { reason: result.reason || t('common.notSet') }));
+      }
       return;
     }
     console.log(t('patch.applied', { id: result.patch.patchId }));
     if (result.validationResults.length) {
+      console.log(t('patch.testsStarted', { command: result.validationResults[0]?.command || t('common.notSet') }));
       for (const validation of result.validationResults) {
         const commandText = [validation.command, ...(validation.args || [])].filter(Boolean).join(' ');
         const label = validation.skipped
@@ -749,6 +1628,13 @@ async function handlePatchCommand(subcommand, options, t, locale) {
             ? t('patch.validationSuccess')
             : t('patch.validationFailed');
         console.log(`${commandText}: ${label}`);
+      }
+      if (result.testOutcome?.action === 'warn') {
+        console.log(t('patch.testsWarn'));
+      } else if (result.testOutcome?.action === 'rollback') {
+        console.log(t('patch.testsRollback'));
+      } else if (result.testOutcome?.action === 'ask') {
+        console.log(t('patch.testsAsk'));
       }
     } else {
       console.log(t('patch.validationSkipped'));
@@ -1093,15 +1979,17 @@ async function main() {
     return;
   }
 
-  if (command === 'models' && subcommand === 'list') {
-    const models = await listModels();
-    if (models.length === 0) {
-      console.log(t('common.noLocalModels'));
+  if ((command === 'model' || command === 'models') && subcommand === 'list') {
+    const projectRoot = process.cwd();
+    const provider = await getProvider(projectRoot);
+    const models = await provider.listModels();
+    if (!models.length) {
+      console.log(t('provider.noModels', { provider: provider.name }));
       return;
     }
+    console.log(t('provider.modelsTitle', { provider: provider.name }));
     for (const model of models) {
-      const size = typeof model.size === 'number' ? ` (${Math.round(model.size / 1024 / 1024)} MB)` : '';
-      console.log(`${model.name}${size}`);
+      console.log(model);
     }
     return;
   }
@@ -1113,6 +2001,16 @@ async function main() {
 
   if (command === 'project') {
     await handleProjectCommand(subcommand, t, locale);
+    return;
+  }
+
+  if (command === 'provider') {
+    await handleProviderCommand(subcommand, options, t, locale);
+    return;
+  }
+
+  if (command === 'test') {
+    await handleTestCommand(subcommand, options, t, locale);
     return;
   }
 
@@ -1172,35 +2070,82 @@ async function main() {
 
     const state = await readProjectState(project.root);
     const policy = await readProjectPolicy(project.root);
-    const model = options.model || state?.selectedModel || 'qwen2.5-coder:14b';
+    const selectedProvider = await getProvider(project.root, options.provider || state?.selectedProvider || null);
+    const model = options.model || state?.selectedModel || selectedProvider.defaultModel;
     const resolvedRole = await resolveRoleSelection(project.root, options.role || state?.activeRole || null);
-    const currentTask = await getCurrentTask(project.root);
-    await updateProjectState(project.root, {
-      activeRole: resolvedRole.name,
-      selectedModel: model,
-      currentTaskId: currentTask?.id || null,
+    let currentTask = await getCurrentTask(project.root);
+    const initialTaskInstruction = String(options.task || '').trim();
+    if (initialTaskInstruction) {
+      const createdTask = await createTask(project.root, {
+        title: deriveTaskTitle(initialTaskInstruction),
+        userRequest: initialTaskInstruction,
+        summary: initialTaskInstruction,
+        role: resolvedRole.name,
+        model,
+      }, locale);
+      await setCurrentTask(project.root, createdTask.id, locale);
+      currentTask = await getCurrentTask(project.root);
+    }
+    const sessionId = createSessionId();
+    const conversation = await loadConversationBundle(project.root, currentTask, {
+      provider: selectedProvider,
+      model,
+      locale,
     });
+    const statePatch = {
+      activeRole: resolvedRole.name,
+      currentTaskId: currentTask?.id || null,
+    };
+    if (!options.provider && !options.model) {
+      statePatch.selectedProvider = selectedProvider.name;
+      statePatch.selectedModel = model;
+    }
+    await updateProjectState(project.root, statePatch);
+    if (currentTask) {
+      await setTaskLastSessionId(project.root, currentTask.id, sessionId, locale);
+    }
 
     const memoryContext = await summarizeCurrentMemory(project.root);
     const taskContext = currentTask ? await getCurrentTaskContext(project.root, locale) : '';
     const extensionPrompts = await listEnabledExtensionPromptPacks(project.root);
     const allowedShellCommands = await listAllowedShellCommands(project.root);
+    console.log(t('project.loaded', { path: project.root }));
+    console.log(t('project.workspacePrepared'));
+    console.log(t('project.readyHint'));
     console.log(`${t('common.projectRoot')}: ${project.root}`);
+    console.log(t('common.selectedProvider', { provider: selectedProvider.name }));
     console.log(t('common.activeRole', { role: resolvedRole.name }));
     console.log(t('common.selectedModel', { model }));
     console.log(t('common.currentTask', { id: currentTask ? `${currentTask.id} (${currentTask.title})` : t('common.notSet') }));
+    if (conversation.totalMessages > 0) {
+      console.log(t('task.continueLoaded', {
+        messages: conversation.totalMessages,
+        sessions: conversation.sessionCount,
+        limit: conversation.contextWindow?.historyMessages || 20,
+      }));
+    }
+    if (initialTaskInstruction && currentTask) {
+      console.log(t('agent.taskStarted', { id: currentTask.id, title: currentTask.title }));
+    }
+    if (conversation.summaryGenerated) {
+      console.log(t('task.conversationSummaryGenerated'));
+    }
 
     await runInteractiveAgent({
       root: project.root,
       model,
+      provider: selectedProvider,
       promptLabel: t('agent.promptLabel'),
       exitHint: t('agent.exitHint'),
       helpHint: t('agent.helpHint'),
+      initialUserInput: initialTaskInstruction,
+      initialConversationHistory: conversation.recentMessages,
       composePromptForTask: async (taskInstruction) => composePromptLayers({
         baseInstructions: BASE_SYSTEM_INSTRUCTIONS,
         roleProfile: resolvedRole,
         memorySummary: memoryContext,
         taskContext,
+        conversationSummary: conversation.summary,
         extensionPrompts,
         taskInstruction,
         allowedShellCommands,
@@ -1212,14 +2157,37 @@ async function main() {
         currentTaskId: currentTask.id,
         currentRole: resolvedRole.name,
         currentModel: model,
+        currentSessionId: sessionId,
         appendNote: async ({ taskId, kind, text, source }) => appendTaskNote(project.root, taskId, {
           kind,
           text,
           source,
         }, { locale }),
-        onTurnComplete: async ({ assistantMessage, toolResults }) => {
+        onTurnComplete: async ({ userInput, assistantMessage, toolResults }) => {
           const pieces = [];
+          const taskDir = getTaskFolderPath(project.root, currentTask);
+          if (userInput) {
+            await appendConversationMessage(taskDir, {
+              id: createMessageId(),
+              role: 'user',
+              content: userInput,
+              timestamp: new Date().toISOString(),
+              provider: selectedProvider.name,
+              model,
+              sessionId,
+            });
+            pieces.push(`Запрос: ${userInput}`);
+          }
           if (assistantMessage) {
+            await appendConversationMessage(taskDir, {
+              id: createMessageId(),
+              role: 'assistant',
+              content: assistantMessage,
+              timestamp: new Date().toISOString(),
+              provider: selectedProvider.name,
+              model,
+              sessionId,
+            });
             pieces.push(`Ответ: ${assistantMessage}`);
           }
           if (toolResults.length) {
@@ -1233,6 +2201,7 @@ async function main() {
               source: 'agent',
             }, { locale });
           }
+          await setTaskLastSessionId(project.root, currentTask.id, sessionId, locale);
         },
       } : {
         onTurnComplete: async () => {},

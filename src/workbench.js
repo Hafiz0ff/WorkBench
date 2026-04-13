@@ -21,6 +21,10 @@ const TOP_LEVEL_COMMANDS = new Set([
   'start',
 ]);
 
+function isOptionLike(value) {
+  return typeof value === 'string' && value.startsWith('-');
+}
+
 export function resolveWorkbenchInvocation(argv, cwd = process.cwd()) {
   const args = Array.isArray(argv) ? argv.slice() : [];
   if (!args.length) {
@@ -30,6 +34,9 @@ export function resolveWorkbenchInvocation(argv, cwd = process.cwd()) {
   const [first, ...rest] = args;
   if (!first || first.startsWith('-') || TOP_LEVEL_COMMANDS.has(first)) {
     return args;
+  }
+  if (rest.length > 0 && rest.every((value) => !isOptionLike(value))) {
+    return ['start', first, '--task', rest.join(' ')];
   }
   return ['start', first, ...rest];
 }

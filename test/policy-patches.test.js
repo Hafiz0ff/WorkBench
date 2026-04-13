@@ -131,6 +131,42 @@ test('approval mode changes path and command decisions', async () => {
   assert.equal(evaluateCommandPolicy(autoSafe, 'npm', ['test']).allowed, true);
 });
 
+test('auto-with-tests rolls back a patch when the configured tests fail', async () => {
+  const root = await createTempProject();
+  const policy = {
+    ...getDefaultPolicy(),
+    approvalMode: 'auto-with-tests',
+    testRunner: {
+      command: 'node -e "process.exit(1)"',
+      timeout: 5000,
+      autoRun: {
+        onPatchApply: true,
+        onAutoStep: true,
+      },
+      onFail: {
+        action: 'warn',
+        rollbackPatches: true,
+      },
+      history: {
+        keepLast: 20,
+      },
+      runners: [],
+      env: {},
+    },
+  };
+
+  await writeProjectPolicy(root, policy);
+  await stageProjectFileChange(root, 'src/index.js', 'export const value = 2;\n', {
+    policy,
+    validationCommands: [{ command: 'node', args: ['-e', 'process.exit(1)'] }],
+  });
+
+  const applied = await applyPatchArtifact(root, null, { policy });
+  assert.equal(applied.applied, false);
+  assert.equal(applied.testOutcome.rolledBack, true);
+  assert.match(await readText(path.join(root, 'src', 'index.js')), /value = 1/);
+});
+
 test('validation results are logged back into the current task notes after patch apply', async () => {
   const root = await createTempProject();
   const task = await createTask(root, {

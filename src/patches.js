@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeRoot, resolveWithinRoot } from './security.js';
 import { evaluatePathPolicy, readProjectPolicy } from './policy.js';
-import { runShellCommand } from './execution.js';
+import { runConfiguredTests, getTestRunnerConfig, detectRunner } from './test-runner.js';
 
 const PATCHES_DIR_NAME = path.join('.local-codex', 'patches');
 const PENDING_PATCH_FILE = path.join('.local-codex', 'pending-change.json');
@@ -279,6 +279,130 @@ function summarizeApprovalStatus(changes) {
   return 'not_required';
 }
 
+function normalizeValidationResult(result) {
+  return {
+    runId: result.runId || null,
+    command: result.command || '',
+    args: Array.isArray(result.args) ? result.args : [],
+    ok: result.status === 'passed',
+    skipped: Boolean(result.skipped),
+    status: result.status || (result.skipped ? 'skipped' : 'failed'),
+    code: result.exitCode,
+    stdout: result.output || '',
+    stderr: result.stderr || '',
+    reason: result.reason || null,
+    duration: result.duration || 0,
+    summary: result.summary || null,
+    failedTests: Array.isArray(result.failedTests) ? result.failedTests : [],
+    message: result.reason || result.status || null,
+  };
+}
+
+function summarizeValidationStatus(validationResults) {
+  const executedResults = validationResults.filter((result) => !result.skipped);
+  if (!validationResults.length || !executedResults.length) {
+    return 'skipped';
+  }
+  return executedResults.every((result) => result.ok) ? 'success' : 'failed';
+}
+
+async function runPatchTestSuite(projectRoot, patch, options = {}) {
+  if (options.skipTests) {
+    return [];
+  }
+  const policy = options.policy || await readProjectPolicy(projectRoot);
+  const testRunner = getTestRunnerConfig(policy);
+  if (testRunner.autoRun?.onPatchApply === false) {
+    return [];
+  }
+
+  const commands = Array.isArray(patch.validationCommands) && patch.validationCommands.length
+    ? patch.validationCommands
+    : [];
+  const fallbackCommand = testRunner.runners?.length
+    ? testRunner.runners
+    : (testRunner.command ? [{ command: testRunner.command, cwd: testRunner.cwd, timeout: testRunner.timeout }] : []);
+  const suite = commands.length ? commands : fallbackCommand.length ? fallbackCommand : [await detectRunner(projectRoot)];
+  const results = [];
+  const stopOnFailure = testRunner.onFail?.action === 'rollback' || String(policy.approvalMode || '').trim().toLowerCase() === 'auto-with-tests';
+  for (const command of suite) {
+    const runResult = await runConfiguredTests(projectRoot, {
+      policy,
+      commands: [command],
+      taskId: patch.taskId || null,
+      patchId: patch.patchId || null,
+      allowApprovalBypass: true,
+      stopOnFailure,
+      onlyAuto: false,
+    });
+    results.push(...runResult.map(normalizeValidationResult));
+    if (stopOnFailure && results.some((result) => result.status !== 'passed')) {
+      break;
+    }
+  }
+  return results;
+}
+
+async function handlePatchFailureOutcome(projectRoot, patch, validationResults, options = {}) {
+  const policy = options.policy || await readProjectPolicy(projectRoot);
+  const testRunner = getTestRunnerConfig(policy);
+  const status = summarizeValidationStatus(validationResults);
+  const failed = status === 'failed';
+  if (!failed) {
+    return {
+      action: 'continue',
+      rolledBack: false,
+      validationStatus: status,
+    };
+  }
+
+  const approvalMode = String(policy.approvalMode || '').trim().toLowerCase();
+  const autoWithTests = approvalMode === 'auto-with-tests';
+  const action = autoWithTests ? 'rollback' : testRunner.onFail?.action || 'warn';
+
+  if (action === 'warn') {
+    return {
+      action,
+      rolledBack: false,
+      validationStatus: status,
+    };
+  }
+
+  if (action === 'ask') {
+    const promptApproval = typeof options.promptApproval === 'function'
+      ? options.promptApproval
+      : null;
+    if (promptApproval) {
+      const approved = await promptApproval();
+      if (approved) {
+        const rolledBack = await rollbackPatch(projectRoot, patch);
+        return {
+          action: 'rollback',
+          rolledBack: rolledBack.rolledBack,
+          validationStatus: status,
+          patch: rolledBack.patch || patch,
+        };
+      }
+    }
+  }
+
+  if (testRunner.onFail?.rollbackPatches !== false) {
+    const rolledBack = await rollbackPatch(projectRoot, patch);
+    return {
+      action: 'rollback',
+      rolledBack: rolledBack.rolledBack,
+      validationStatus: status,
+      patch: rolledBack.patch || patch,
+    };
+  }
+
+  return {
+    action: 'warn',
+    rolledBack: false,
+    validationStatus: status,
+  };
+}
+
 export async function ensurePatchWorkspace(projectRoot) {
   const root = normalizeRoot(projectRoot);
   await ensureDirectory(path.join(root, PATCHES_DIR_NAME));
@@ -552,37 +676,19 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
     await atomicWriteFile(absolutePath, change.afterContent);
   }
 
-  const validationResults = [];
-  for (const validationCommand of artifact.validationCommands || []) {
-    const result = await runShellCommand(root, validationCommand.command, validationCommand.args || [], {
-      policy: options.policy,
-      t: options.t,
-      timeoutMs: validationCommand.timeoutMs || options.timeoutMs || 120000,
-    });
-    if (result.decision !== 'allow') {
-      validationResults.push({
-        command: validationCommand.command,
-        args: validationCommand.args || [],
-        ...result,
-        skipped: true,
-      });
-      continue;
-    }
-    validationResults.push({
-      command: validationCommand.command,
-      args: validationCommand.args || [],
-      ...result,
-      skipped: false,
-    });
-  }
-
-  const executedResults = validationResults.filter((result) => !result.skipped);
-  const validationStatus = validationResults.length === 0 || executedResults.length === 0
-    ? 'skipped'
-    : executedResults.every((result) => result.ok) ? 'success' : 'failed';
+  const validationResults = await runPatchTestSuite(root, artifact, {
+    policy: options.policy,
+    skipTests: options.skipTests,
+  });
+  const validationStatus = summarizeValidationStatus(validationResults);
+  const testOutcome = await handlePatchFailureOutcome(root, artifact, validationResults, {
+    policy: options.policy,
+    promptApproval: options.promptApproval,
+  });
+  const finalPatch = testOutcome.rolledBack ? testOutcome.patch : artifact;
   const nextPatch = {
-    ...artifact,
-    status: 'applied',
+    ...finalPatch,
+    status: testOutcome.rolledBack ? 'rolled_back' : 'applied',
     updatedAt: nowIso(),
     appliedAt: nowIso(),
     validationStatus,
@@ -614,11 +720,16 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
   await writePendingPatch(root, pending);
 
   return {
-    applied: true,
-    reason: null,
+    applied: !testOutcome.rolledBack,
+    reason: testOutcome.rolledBack ? 'tests_failed_rollback' : null,
     patch: nextPatch,
     validationResults,
+    testOutcome,
   };
+}
+
+export async function applyPatchSilent(projectRoot, patch = null, options = {}) {
+  return applyPatchArtifact(projectRoot, patch, options);
 }
 
 export async function rejectPatchArtifact(projectRoot, patch = null) {
@@ -666,6 +777,73 @@ export async function rejectPatchArtifact(projectRoot, patch = null) {
 
   return {
     rejected: true,
+    reason: null,
+    patch: nextPatch,
+  };
+}
+
+export async function rollbackPatch(projectRoot, patch = null) {
+  const root = normalizeRoot(projectRoot);
+  await ensurePatchWorkspace(root);
+  const current = patch || await getLatestPatch(root);
+  if (!current) {
+    return {
+      rolledBack: false,
+      reason: 'no_patch',
+      patch: null,
+    };
+  }
+
+  const artifact = await readPatchArtifact(root, current.patchId) || current;
+  const changes = Array.isArray(artifact.changes) ? [...artifact.changes].reverse() : [];
+  for (const change of changes) {
+    const absolutePath = resolveWithinRoot(root, change.path);
+    const exists = await fileExists(absolutePath);
+    if (change.action === 'create') {
+      if (exists) {
+        await fs.rm(absolutePath, { force: true });
+      }
+      continue;
+    }
+    if (change.action === 'delete') {
+      await ensureDirectory(path.dirname(absolutePath));
+      await atomicWriteFile(absolutePath, change.beforeContent || '');
+      continue;
+    }
+    await ensureDirectory(path.dirname(absolutePath));
+    await atomicWriteFile(absolutePath, change.beforeContent || '');
+  }
+
+  const nextPatch = {
+    ...artifact,
+    status: 'rolled_back',
+    updatedAt: nowIso(),
+    rolledBackAt: nowIso(),
+  };
+  const artifactPath = path.join(root, PATCHES_DIR_NAME, artifact.patchId, 'patch.json');
+  await atomicWriteFile(artifactPath, `${JSON.stringify(nextPatch, null, 2)}\n`);
+  const pending = {
+    schemaVersion: PATCH_SCHEMA_VERSION,
+    patchId: nextPatch.patchId,
+    taskId: nextPatch.taskId,
+    role: nextPatch.role,
+    model: nextPatch.model,
+    createdAt: nextPatch.createdAt,
+    updatedAt: nextPatch.updatedAt,
+    status: nextPatch.status,
+    approvalMode: nextPatch.approvalMode,
+    approvalStatus: nextPatch.approvalStatus,
+    validationStatus: nextPatch.validationStatus,
+    summary: nextPatch.summary,
+    affectedFiles: nextPatch.affectedFiles,
+    validationCommands: nextPatch.validationCommands,
+    rolledBackAt: nextPatch.rolledBackAt,
+    diffPath: path.relative(root, path.join(root, PATCHES_DIR_NAME, artifact.patchId, 'diff.txt')),
+    patchPath: path.relative(root, artifactPath),
+  };
+  await writePendingPatch(root, pending);
+  return {
+    rolledBack: true,
     reason: null,
     patch: nextPatch,
   };

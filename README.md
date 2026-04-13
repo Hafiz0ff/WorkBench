@@ -1,10 +1,16 @@
 # Workbench
 
+![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
+![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
+![Release](https://img.shields.io/badge/release-1.0.1-4F46E5?style=flat-square)
+
 ## Contents
 
 - [English](#english)
 - [Русский](#russian)
 - [Highlights / Возможности](#highlights)
+- [Screenshots / Скриншоты](#screenshots)
 - [Quick Start / Быстрый старт](#quick-start)
 - [Drag & Drop / Перетаскивание папки](#drag-drop)
 - [Core Commands / Основные команды](#core-commands)
@@ -18,15 +24,20 @@
 
 Workbench is a local coding assistant for macOS powered by Ollama. It combines a terminal-first CLI, a native SwiftUI app, project memory, task tracking, safe patch application, and an inspectable extension system.
 
+Workbench is now moving toward a provider layer that can switch between Ollama, OpenAI, Anthropic, and Gemini through the same CLI and workspace state.
+
 <a id="russian"></a>
 ## Русский
 
 Workbench - локальный coding assistant для macOS на базе Ollama. Он сочетает CLI, native SwiftUI app, память проекта, задачи, безопасные патчи и inspectable extension system.
 
+Workbench также получает provider layer, который позволяет переключаться между Ollama, OpenAI, Anthropic и Gemini через один и тот же интерфейс.
+
 <a id="highlights"></a>
 ## Highlights / Возможности
 
 - Local Ollama integration over `http://localhost:11434`
+- Multi-provider layer for Ollama, OpenAI, Anthropic, and Gemini
 - Russian-first CLI and GUI by default
 - Native macOS SwiftUI wrapper over the same filesystem-based engine
 - Project memory, role profiles, task workspace, and prompt composition
@@ -35,12 +46,73 @@ Workbench - локальный coding assistant для macOS на базе Ollam
 - Inspectable on-disk state in `.local-codex/`
 
 - Интеграция с локальным Ollama через `http://localhost:11434`
+- Provider layer для Ollama, OpenAI, Anthropic и Gemini
 - Русский интерфейс по умолчанию в CLI и GUI
 - Native macOS SwiftUI оболочка поверх того же filesystem-based engine
 - Память проекта, профили ролей, task workspace и сборка prompt
 - Reviewable patch workflow с approval modes и policy-driven execution
 - Manifest-driven GitHub extensions и curated registry layer
 - Полностью inspectable состояние на диске в `.local-codex/`
+
+<a id="screenshots"></a>
+## Screenshots / Скриншоты
+
+Workbench is ready as soon as a project opens. Quick tour below.
+
+Workbench готов сразу после открытия проекта. Короткий тур ниже.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/01-project-ready.png" alt="Project ready" width="100%" />
+      <br /><sub>Project ready / Проект</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/02-tasks.png" alt="Tasks" width="100%" />
+      <br /><sub>Tasks / Задачи</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/03-roles.png" alt="Roles" width="100%" />
+      <br /><sub>Roles / Роли</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/04-extensions.png" alt="Extensions" width="100%" />
+      <br /><sub>Extensions / Расширения</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/05-registry.png" alt="Registry" width="100%" />
+      <br /><sub>Registry / Каталог</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/06-prompt.png" alt="Prompt inspector" width="100%" />
+      <br /><sub>Prompt inspector / Промпт</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/07-patches.png" alt="Patches" width="100%" />
+      <br /><sub>Patches / Патчи</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/08-policy.png" alt="Policy" width="100%" />
+      <br /><sub>Policy / Политика</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/09-session.png" alt="Session" width="100%" />
+      <br /><sub>Session / Сессия</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/10-settings.png" alt="Settings" width="100%" />
+      <br /><sub>Settings / Настройки</sub>
+    </td>
+  </tr>
+</table>
 
 <a id="quick-start"></a>
 ## Quick Start / Быстрый старт
@@ -81,15 +153,21 @@ This installs `workbench`, a folder-first launcher:
 
 ```bash
 workbench ~/path/to/project
+workbench ~/path/to/project "Implement auth flow"
 workbench
 ```
+
+After a project opens, the first screen shows a task composer so you can start immediately.
 
 Это устанавливает `workbench` - запускатель, который первым делом открывает папку проекта:
 
 ```bash
 workbench ~/path/to/project
+workbench ~/path/to/project "Implement auth flow"
 workbench
 ```
+
+После открытия проекта первый экран показывает composer задачи, чтобы можно было сразу начать работу.
 
 ### Run / Запуск
 
@@ -105,10 +183,22 @@ Start with a specific model:
 app start /path/to/project --model qwen2.5-coder:14b
 ```
 
+Start with a specific provider:
+
+```bash
+app start /path/to/project --provider openai --model gpt-4o
+```
+
 Start with a specific role:
 
 ```bash
 app start /path/to/project --role software-architect
+```
+
+Start and immediately queue the first task:
+
+```bash
+app start /path/to/project --task "Implement auth flow"
 ```
 
 Запустить интерактивного агента:
@@ -121,6 +211,12 @@ app start /path/to/project
 
 ```bash
 app start /path/to/project --model qwen2.5-coder:14b
+```
+
+Выбрать провайдер:
+
+```bash
+app start /path/to/project --provider openai --model gpt-4o
 ```
 
 Выбрать роль:
@@ -142,12 +238,14 @@ The same folder-first flow is available in Terminal:
 
 ```bash
 workbench ~/path/to/project
+workbench ~/path/to/project "Implement auth flow"
 ```
 
 Такой же сценарий доступен в Терминале:
 
 ```bash
 workbench ~/path/to/project
+workbench ~/path/to/project "Implement auth flow"
 ```
 
 ### Native macOS App / Native macOS app
@@ -208,6 +306,16 @@ app memory show project_overview
 app memory rebuild
 ```
 
+### Providers / Провайдеры
+
+```bash
+app provider list
+app provider use ollama
+app provider set-key openai sk-proj-...
+app provider health
+app model list
+```
+
 ### Roles / Роли
 
 ```bash
@@ -246,10 +354,22 @@ app task show task-2026-04-13-auth-refactor
 app task use task-2026-04-13-auth-refactor
 app task plan task-2026-04-13-auth-refactor
 app task note task-2026-04-13-auth-refactor --kind finding --text "Нашел узкое место в валидации."
+app task history task-2026-04-13-auth-refactor
+app task sessions task-2026-04-13-auth-refactor
+app task export task-2026-04-13-auth-refactor --format md
+app task continue task-2026-04-13-auth-refactor
+app task auto task-2026-04-13-auth-refactor --request "Добавь JWT auth" --dry-run
+app task run-status task-2026-04-13-auth-refactor
+app task abort task-2026-04-13-auth-refactor
+app task runs task-2026-04-13-auth-refactor
 app task done task-2026-04-13-auth-refactor
 app task archive task-2026-04-13-auth-refactor
 app task current
 ```
+
+Auto mode turns a task into a plan/execute/report loop: it proposes a short plan first, then can continue through patch application and validation.
+
+Авто-режим превращает задачу в цикл plan/execute/report: сначала предлагает короткий план, затем может продолжить с применением патчей и проверкой.
 
 ### Prompt / Промпт
 
@@ -277,6 +397,12 @@ app registry refresh
 app registry list
 app registry install sample.reviewed
 ```
+
+### Provider workspace / Рабочая область провайдеров
+
+Provider settings live in `.local-codex/providers.json` and are created automatically when you initialize or open a project. The file stays local and is ignored by Git.
+
+Настройки провайдеров хранятся в `.local-codex/providers.json` и создаются автоматически при инициализации или открытии проекта. Файл остается локальным и игнорируется Git.
 
 <a id="local-codex"></a>
 ## `.local-codex/`
@@ -378,6 +504,7 @@ Release docs:
 - `docs/manual-qa-template.md`
 - `docs/release-notes-template.md`
 - `docs/release-notes-1.0.0.md`
+- `docs/release-notes-1.0.1.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -386,4 +513,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The first public release target is `1.0.0`.
+- The current release line is `1.0.1`.

@@ -1,9 +1,9 @@
 {
   "name": "local-codex-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
-  "description": "Workbench CLI for macOS with Ollama integration.",
+  "description": "Workbench CLI for macOS with local and remote LLM provider support.",
   "bin": {
     "app": "./src/cli.js",
     "workbench": "./src/workbench.js"
@@ -12,6 +12,11 @@
     "start": "node ./src/cli.js",
     "test": "node --test",
     "models:list": "node ./src/cli.js models list"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@google/genai": "^1.49.0",
+    "openai": "^6.34.0"
   },
   "engines": {
     "node": ">=20"

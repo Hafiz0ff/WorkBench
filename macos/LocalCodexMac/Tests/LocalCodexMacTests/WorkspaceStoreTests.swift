@@ -139,6 +139,13 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot?.roles.count, 1)
         XCTAssertEqual(store.snapshot?.roles.first?.name, "senior-engineer")
         XCTAssertEqual(store.roleActionMessage, store.localeStore.text("gui.roles.scaffoldSuccess", 1))
+        XCTAssertTrue(store.projectLaunchBannerVisible)
+        XCTAssertEqual(store.projectLaunchMessages, [
+            store.localeStore.text("gui.project.bannerLoaded"),
+            store.localeStore.text("gui.project.bannerMemoryReady"),
+            store.localeStore.text("gui.project.bannerRolesReady"),
+        ])
+        XCTAssertNotNil(store.projectComposerFocusToken)
         XCTAssertFalse(store.isProjectBootstrapping)
     }
 
@@ -197,6 +204,31 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.taskRequest, "")
         XCTAssertEqual(store.snapshot?.tasks.count, 1)
         XCTAssertEqual(store.snapshot?.state?.currentTaskId, "task-1")
+    }
+
+    func testProjectComposerSubmissionGuardPreventsDuplicateStart() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try writeProjectState(root)
+        try writeEmptyTaskIndex(root)
+
+        let runner = MockCLICommandRunner(projectRoot: root) { _, _, _ in
+            XCTFail("No CLI calls should be issued while a submission is already in progress")
+        }
+
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+        store.projectComposerText = "Inspect startup flow"
+        store.isProjectComposerSubmitting = true
+
+        await store.startProjectTask()
+
+        let calls = await runner.calls
+        XCTAssertTrue(calls.isEmpty)
+        XCTAssertEqual(store.projectComposerText, "Inspect startup flow")
+        XCTAssertTrue(store.isProjectComposerSubmitting)
     }
 
     func testUseRoleRefreshesSnapshotAndPersistsSelection() async throws {

@@ -33,8 +33,20 @@ test('Russian is the default locale and unknown locales fall back to Russian', a
   assert.match(defaultTranslator('help.title'), /Локальный coding assistant/);
   assert.match(fallbackTranslator('help.title'), /Локальный coding assistant/);
   assert.match(englishTranslator('help.title'), /Local coding assistant/);
+  assert.match(defaultTranslator('help.usage'), /app provider list/);
+  assert.match(englishTranslator('help.usage'), /app provider list/);
+  assert.match(defaultTranslator('help.usage'), /app task history/);
+  assert.match(englishTranslator('help.usage'), /app task history/);
+  assert.match(defaultTranslator('help.usage'), /app test run/);
+  assert.match(englishTranslator('help.usage'), /app test run/);
   assert.match(defaultTranslator('extensions.installPreviewTitle'), /Предпросмотр расширения/);
   assert.match(englishTranslator('extensions.installPreviewTitle'), /Extension preview/);
+  assert.match(defaultTranslator('provider.listTitle'), /Провайдеры LLM/);
+  assert.match(englishTranslator('provider.listTitle'), /LLM providers/);
+  assert.match(defaultTranslator('task.historyTitle', { id: 'task-1' }), /История задачи/);
+  assert.match(englishTranslator('task.historyTitle', { id: 'task-1' }), /Task history/);
+  assert.match(defaultTranslator('test.configTitle'), /Конфигурация тест-раннера/);
+  assert.match(englishTranslator('test.configTitle'), /Test runner config/);
   assert.equal(fallbackTranslator('missing.key'), 'missing.key');
 });
 

@@ -2,48 +2,149 @@ import SwiftUI
 
 struct ProjectView: View {
     @EnvironmentObject private var store: WorkspaceStore
+    @State private var composerFocused = false
+    @State private var composerAutofocusTask: Task<Void, Never>?
 
     var body: some View {
         SectionShell(title: store.localeStore.text("gui.project.title")) {
             VStack(alignment: .leading, spacing: 14) {
-                StatusRibbon(items: [
-                    .init(label: store.localeStore.text("gui.project.currentRole"), value: store.currentRoleDisplay, tint: .blue, symbol: "person.fill"),
-                    .init(label: store.localeStore.text("gui.project.currentModel"), value: store.currentModelDisplay, tint: .teal, symbol: "cpu.fill"),
-                    .init(label: store.localeStore.text("gui.project.currentTask"), value: store.currentTaskSummaryDisplay, tint: .orange, symbol: "checklist"),
-                    .init(label: store.localeStore.text("gui.project.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield.checkered"),
-                    .init(label: store.localeStore.text("gui.project.currentPatch"), value: store.currentPatchStatusDisplay, tint: store.hasPendingPatch ? .red : .secondary, symbol: "doc.on.doc"),
-                ])
-
-                keyValueRow(store.localeStore.text("gui.project.root"), store.projectRootDisplay)
-                keyValueRow(store.localeStore.text("gui.project.engineRoot"), store.engineRootDisplay)
-                keyValueRow(store.localeStore.text("gui.project.memory"), store.snapshot?.memoryExists == true ? store.localeStore.text("gui.common.yes") : store.localeStore.text("gui.common.no"))
-
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        Button {
-                            store.chooseProjectFolder()
-                        } label: {
-                            Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                if let root = store.selectedProjectRoot {
+                    if store.projectLaunchBannerVisible, !store.projectLaunchMessages.isEmpty {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundStyle(.green)
+                                .font(.title3)
+                                .padding(.top, 1)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(store.localeStore.text("gui.project.loaded"))
+                                    .font(.headline)
+                                ForEach(store.projectLaunchMessages, id: \.self) { message in
+                                    Text(message)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 12)
+                            Button(store.localeStore.text("gui.project.bannerDismiss")) {
+                                store.dismissProjectLaunchBanner()
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
                         }
-                        Button {
-                            Task { await store.initializeWorkspace() }
-                        } label: {
-                            Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
-                        }
-                        Button {
-                            Task { await store.refreshWorkspace() }
-                        } label: {
-                            Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
-                        }
-                        Spacer(minLength: 12)
+                        .padding(12)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button {
-                            store.chooseProjectFolder()
-                        } label: {
-                            Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+
+                    GroupBox(store.localeStore.text("gui.project.composerTitle")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(store.projectNameDisplay)
+                                    .font(.title3.weight(.semibold))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(root.path)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .truncationMode(.middle)
+                            }
+
+                            ZStack(alignment: .topLeading) {
+                                ProjectComposerTextView(
+                                    text: $store.projectComposerText,
+                                    isFocused: composerFocused,
+                                    onSubmit: {
+                                        Task { await store.startProjectTask() }
+                                    }
+                                )
+                                    .frame(minHeight: 132)
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+                                if store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(store.localeStore.text("gui.project.composerPlaceholder"))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 12)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+
+                            Text(store.localeStore.text("gui.project.composerHint"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                            ViewThatFits(in: .horizontal) {
+                                HStack {
+                                    Button {
+                                        Task { await store.startProjectTask() }
+                                    } label: {
+                                        Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    Spacer(minLength: 12)
+                                    Text(store.localeStore.text("gui.project.readyHint"))
+                                        .foregroundStyle(.secondary)
+                                    Text(store.localeStore.text("gui.project.shortcutHint"))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Button {
+                                        Task { await store.startProjectTask() }
+                                    } label: {
+                                        Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    Text(store.localeStore.text("gui.project.readyHint"))
+                                        .foregroundStyle(.secondary)
+                                    Text(store.localeStore.text("gui.project.shortcutHint"))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
-                        HStack(spacing: 12) {
+                    }
+
+                    GroupBox(store.localeStore.text("gui.project.quickActions")) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 10)], spacing: 10) {
+                            QuickActionButton(title: store.localeStore.text("gui.project.quickStructure")) {
+                                store.projectComposerText = store.localeStore.text("gui.project.quickStructurePrompt")
+                            }
+                            QuickActionButton(title: store.localeStore.text("gui.project.quickEntryPoint")) {
+                                store.projectComposerText = store.localeStore.text("gui.project.quickEntryPointPrompt")
+                            }
+                            QuickActionButton(title: store.localeStore.text("gui.project.quickPlan")) {
+                                store.projectComposerText = store.localeStore.text("gui.project.quickPlanPrompt")
+                            }
+                            QuickActionButton(title: store.localeStore.text("gui.project.quickPatch")) {
+                                Task { await store.patchStatus() }
+                            }
+                            QuickActionButton(title: store.localeStore.text("gui.project.quickContext")) {
+                                store.projectComposerText = store.localeStore.text("gui.project.quickContextPrompt")
+                            }
+                        }
+                    }
+
+                    StatusRibbon(items: [
+                        .init(label: store.localeStore.text("gui.project.currentRole"), value: store.currentRoleDisplay, tint: .blue, symbol: "person.fill"),
+                        .init(label: store.localeStore.text("gui.project.currentModel"), value: store.currentModelDisplay, tint: .teal, symbol: "cpu.fill"),
+                        .init(label: store.localeStore.text("gui.project.currentTask"), value: store.currentTaskSummaryDisplay, tint: .orange, symbol: "checklist"),
+                        .init(label: store.localeStore.text("gui.project.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield.checkered"),
+                        .init(label: store.localeStore.text("gui.project.currentPatch"), value: store.currentPatchStatusDisplay, tint: store.hasPendingPatch ? .red : .secondary, symbol: "doc.on.doc"),
+                    ])
+
+                    keyValueRow(store.localeStore.text("gui.project.root"), store.projectRootDisplay)
+                    keyValueRow(store.localeStore.text("gui.project.engineRoot"), store.engineRootDisplay)
+                    keyValueRow(store.localeStore.text("gui.project.memory"), store.snapshot?.memoryExists == true ? store.localeStore.text("gui.common.yes") : store.localeStore.text("gui.common.no"))
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            Button {
+                                store.chooseProjectFolder()
+                            } label: {
+                                Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                            }
                             Button {
                                 Task { await store.initializeWorkspace() }
                             } label: {
@@ -54,16 +155,107 @@ struct ProjectView: View {
                             } label: {
                                 Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
                             }
+                            Spacer(minLength: 12)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button {
+                                store.chooseProjectFolder()
+                            } label: {
+                                Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                            }
+                            HStack(spacing: 12) {
+                                Button {
+                                    Task { await store.initializeWorkspace() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
+                                }
+                                Button {
+                                    Task { await store.refreshWorkspace() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
+                                }
+                            }
                         }
                     }
-                }
 
-                if let state = store.snapshot?.state {
-                    Text("\(store.localeStore.text("gui.project.lastRefresh")): \(state.lastRefreshAt ?? store.localeStore.text("gui.common.notSet"))")
-                        .foregroundStyle(.secondary)
+                    if let state = store.snapshot?.state {
+                        Text("\(store.localeStore.text("gui.project.lastRefresh")): \(state.lastRefreshAt ?? store.localeStore.text("gui.common.notSet"))")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    EmptyStateView(
+                        title: store.localeStore.text("gui.project.empty"),
+                        message: store.localeStore.text("gui.project.emptyHint"),
+                        systemImage: "folder",
+                        primaryActionTitle: store.localeStore.text("gui.project.chooseProject"),
+                        primaryAction: {
+                            store.chooseProjectFolder()
+                        }
+                    )
                 }
             }
         }
+        .onAppear {
+            scheduleComposerAutofocus()
+        }
+        .onChange(of: store.projectComposerFocusToken) { _, _ in
+            scheduleComposerAutofocus()
+        }
+        .onChange(of: store.isProjectBootstrapping) { _, _ in
+            scheduleComposerAutofocus()
+        }
+        .onDisappear {
+            cancelComposerAutofocus()
+        }
+    }
+
+    private func scheduleComposerAutofocus() {
+        composerAutofocusTask?.cancel()
+        guard store.selectedProjectRoot != nil,
+              !store.isProjectBootstrapping,
+              store.projectComposerFocusToken != nil else {
+            return
+        }
+
+        composerAutofocusTask = Task { @MainActor in
+            defer {
+                composerAutofocusTask = nil
+            }
+
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled else { return }
+            guard store.selectedProjectRoot != nil,
+                  !store.isProjectBootstrapping,
+                  store.projectComposerFocusToken != nil else {
+                return
+            }
+
+            composerFocused = true
+            store.consumeProjectComposerFocus()
+        }
+    }
+
+    private func cancelComposerAutofocus() {
+        composerAutofocusTask?.cancel()
+        composerAutofocusTask = nil
+        composerFocused = false
+        if store.projectComposerFocusToken != nil {
+            store.consumeProjectComposerFocus()
+        }
+    }
+}
+
+private struct QuickActionButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+        }
+        .buttonStyle(.bordered)
     }
 }
 

@@ -1,6 +1,5 @@
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { chat, listModels } from './ollama.js';
 import { readProjectFile, writeProjectFile, listProjectFiles } from './project.js';
 import { listAllowedShellCommands, runShellCommand } from './shell.js';
 
@@ -60,7 +59,7 @@ function formatToolError(t, error) {
   }
 }
 
-async function executeToolCall(root, call, { policy, t, taskTools } = {}) {
+async function executeToolCall(root, call, { policy, t, taskTools, provider } = {}) {
   switch (call.tool) {
     case 'list_files':
       return await listProjectFiles(root, call.args?.depth ?? 3);
@@ -92,7 +91,7 @@ async function executeToolCall(root, call, { policy, t, taskTools } = {}) {
     case 'run_shell':
       return await runShellCommand(root, call.args?.command, call.args?.args ?? [], { policy, t });
     case 'list_models':
-      return await listModels();
+      return await provider.listModels();
     case 'task_note':
       return {
         ok: false,
@@ -111,49 +110,58 @@ function formatToolResult(call, result) {
   ].join('\n');
 }
 
-async function runModelRound({ model, messages }) {
-  const content = await chat({
-    model,
-    messages,
-  });
+async function runModelRound({ provider, model, messages }) {
+  const content = await collectModelText(provider, model, messages);
   return parseAssistantEnvelope(content);
+}
+
+async function collectModelText(provider, model, messages) {
+  let content = '';
+  for await (const chunk of provider.chat(messages, { model })) {
+    content += chunk;
+  }
+  return content;
+}
+
+export async function generatePatch({
+  provider,
+  model,
+  prompt,
+  context = [],
+  messages = [],
+}) {
+  const payload = Array.isArray(messages) && messages.length
+    ? messages
+    : [
+      { role: 'system', content: String(prompt || '').trim() },
+      ...(Array.isArray(context) ? context : []),
+    ].filter((message) => typeof message?.content === 'string' && message.content.trim());
+  return collectModelText(provider, model, payload);
 }
 
 export async function runInteractiveAgent({
   root,
   model,
+  provider,
   composePromptForTask,
+  initialConversationHistory = [],
   taskTools = {},
   policy,
   t,
   promptLabel = 'агент> ',
   exitHint = 'Введите /exit, чтобы выйти.',
   helpHint = 'Команды: /exit, /help',
+  initialUserInput = '',
 }) {
   const rl = readline.createInterface({ input, output });
-  const history = [];
+  const history = Array.isArray(initialConversationHistory) ? [...initialConversationHistory] : [];
 
   console.log(t ? t('agent.projectRoot', { path: root }) : `Корень проекта: ${root}`);
   console.log(t ? t('agent.model', { model }) : `Модель: ${model}`);
   console.log(exitHint);
+  console.log(t ? t('agent.projectReady') : 'Проект готов. Опишите задачу ниже.');
 
-  while (true) {
-    const userInput = await rl.question(promptLabel);
-    const trimmed = userInput.trim();
-
-    if (!trimmed) {
-      continue;
-    }
-
-    if (trimmed === '/exit' || trimmed === 'exit' || trimmed === 'quit') {
-      break;
-    }
-
-    if (trimmed === '/help') {
-      console.log(helpHint);
-      continue;
-    }
-
+  async function handleTurn(trimmed) {
     const composition = await composePromptForTask(trimmed);
     const messages = [
       { role: 'system', content: composition.finalPrompt },
@@ -167,7 +175,7 @@ export async function runInteractiveAgent({
 
     while (rounds < 8) {
       rounds += 1;
-      const assistant = await runModelRound({ model, messages });
+      const assistant = await runModelRound({ provider, model, messages });
       lastAssistantMessage = assistant.message || '';
       if (assistant.message) {
         console.log(`\n${assistant.message}\n`);
@@ -200,7 +208,7 @@ export async function runInteractiveAgent({
             source: 'agent',
           });
         } else {
-          result = await executeToolCall(root, call, { policy, t, taskTools });
+          result = await executeToolCall(root, call, { policy, t, taskTools, provider });
         }
         turnToolResults.push({ call, result });
         const toolMessage = formatToolResult(call, result);
@@ -222,6 +230,30 @@ export async function runInteractiveAgent({
         toolResults: turnToolResults,
       });
     }
+  }
+
+  const firstInput = String(initialUserInput || '').trim();
+  if (firstInput) {
+    await handleTurn(firstInput);
+  }
+
+  while (true) {
+    const userInput = await rl.question(promptLabel);
+    const trimmed = userInput.trim();
+
+    if (!trimmed) {
+      continue;
+    }
+
+    if (trimmed === '/exit' || trimmed === 'exit' || trimmed === 'quit') {
+      break;
+    }
+
+    if (trimmed === '/help') {
+      console.log(helpHint);
+      continue;
+    }
+    await handleTurn(trimmed);
   }
 
   rl.close();

@@ -4,6 +4,7 @@ DerivedData/
 node_modules/
 dist/
 .local-codex/
+.local-codex/providers.json
 *.app
 *.dmg
 *.ips

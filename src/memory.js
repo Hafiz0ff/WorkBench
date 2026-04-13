@@ -245,6 +245,7 @@ export async function ensureProjectMemory(projectRoot) {
       createdAt: timestamp,
       updatedAt: timestamp,
       lastRefreshAt: null,
+      selectedProvider: 'ollama',
       activeRole: null,
       selectedModel: null,
       currentTaskId: null,
@@ -279,6 +280,7 @@ export async function updateProjectState(projectRoot, patch) {
     schemaVersion: MEMORY_SCHEMA_VERSION,
     createdAt: nowIso(),
     lastRefreshAt: null,
+    selectedProvider: 'ollama',
     activeRole: null,
     selectedModel: null,
     currentTaskId: null,
@@ -727,6 +729,7 @@ export async function getProjectMemoryStatus(projectRoot) {
     createdAt: state?.createdAt || null,
     updatedAt: state?.updatedAt || null,
     lastRefreshAt: state?.lastRefreshAt || null,
+    selectedProvider: state?.selectedProvider || null,
     activeRole: state?.activeRole || null,
     selectedModel: state?.selectedModel || null,
     currentTaskId: state?.currentTaskId || null,
@@ -751,6 +754,7 @@ export async function summarizeCurrentMemory(projectRoot) {
   const listedModules = moduleSummaryNames.slice(0, 6).map((name) => `- ${name}`);
   return [
     `Корень проекта: ${state.projectRoot}`,
+    `Выбранный провайдер: ${state.selectedProvider || 'не задан'}`,
     `Активная роль: ${state.activeRole || 'не задана'}`,
     `Выбранная модель: ${state.selectedModel || 'не задана'}`,
     `Текущая задача: ${state.currentTaskId || 'не задана'}`,

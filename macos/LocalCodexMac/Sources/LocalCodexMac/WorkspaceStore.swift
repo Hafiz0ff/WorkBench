@@ -42,6 +42,7 @@ final class WorkspaceStore: ObservableObject {
     @Published var promptRoleOverride: String = ""
     @Published var taskTitle: String = ""
     @Published var taskRequest: String = ""
+    @Published var projectComposerText: String = ""
     @Published var taskNoteText: String = ""
     @Published var taskNoteKind: String = "finding"
     @Published var sessionInput: String = ""
@@ -59,6 +60,10 @@ final class WorkspaceStore: ObservableObject {
     @Published var selectedRegistryId: String?
     @Published var roleActionMessage: String?
     @Published var isProjectBootstrapping = false
+    @Published var projectLaunchMessages: [String] = []
+    @Published var projectLaunchBannerVisible = false
+    @Published var projectComposerFocusToken: UUID?
+    @Published var isProjectComposerSubmitting = false
 
     let engineBridge: EngineBridge
     let commandRunner: any CLICommandRunning
@@ -82,8 +87,10 @@ final class WorkspaceStore: ObservableObject {
         self.commandRunner = commandRunner ?? self.engineBridge
         if let selectedProjectRoot {
             self.selectedProjectRoot = selectedProjectRoot
+            self.projectComposerFocusToken = UUID()
         } else if !storedProjectRoot.isEmpty {
             self.selectedProjectRoot = URL(fileURLWithPath: storedProjectRoot)
+            self.projectComposerFocusToken = UUID()
         }
         localeStore.objectWillChange
             .sink { [weak self] _ in
@@ -159,6 +166,10 @@ final class WorkspaceStore: ObservableObject {
 
     var projectRootDisplay: String {
         selectedProjectRoot?.path ?? localeStore.text("gui.project.noProjectSelected")
+    }
+
+    var projectNameDisplay: String {
+        selectedProjectRoot?.lastPathComponent ?? localeStore.text("gui.project.noProjectSelected")
     }
 
     var currentRoleDisplay: String {
@@ -311,11 +322,15 @@ final class WorkspaceStore: ObservableObject {
     func openProjectRoot(_ url: URL) async {
         let normalizedURL = url.standardizedFileURL
         selectedProjectRoot = normalizedURL
+        requestProjectComposerFocus()
         UserDefaults.standard.set(normalizedURL.path, forKey: "localcodex.projectRoot")
         selectedTaskId = snapshot?.state?.currentTaskId
         selectedRoleName = snapshot?.state?.activeRole
         selectedSection = .project
         isProjectBootstrapping = true
+        projectComposerText = ""
+        projectLaunchMessages = []
+        projectLaunchBannerVisible = true
         defer { isProjectBootstrapping = false }
 
         await runCLI(["project", "init"])
@@ -325,6 +340,11 @@ final class WorkspaceStore: ObservableObject {
         } else {
             roleActionMessage = localeStore.text("gui.roles.scaffoldWarning")
         }
+        projectLaunchMessages = [
+            localeStore.text("gui.project.bannerLoaded"),
+            localeStore.text("gui.project.bannerMemoryReady"),
+            localeStore.text("gui.project.bannerRolesReady"),
+        ]
         selectedSection = .project
     }
 
@@ -433,6 +453,48 @@ final class WorkspaceStore: ObservableObject {
         taskTitle = ""
         taskRequest = ""
         selectedSection = .tasks
+    }
+
+    func dismissProjectLaunchBanner() {
+        projectLaunchBannerVisible = false
+    }
+
+    func requestProjectComposerFocus() {
+        projectComposerFocusToken = UUID()
+    }
+
+    func consumeProjectComposerFocus() {
+        projectComposerFocusToken = nil
+    }
+
+    func startProjectTask() async {
+        guard !isProjectComposerSubmitting else { return }
+        let request = projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !request.isEmpty else {
+            appendConsole(localeStore.text("gui.project.composerEmpty"), kind: .error)
+            return
+        }
+
+        isProjectComposerSubmitting = true
+        defer { isProjectComposerSubmitting = false }
+
+        let generatedTitle = deriveProjectTaskTitle(from: request)
+        taskTitle = generatedTitle
+        taskRequest = request
+        await createTask()
+
+        guard let createdTask = snapshot?.tasks.first(where: { $0.title == generatedTitle && $0.userRequest == request }) else {
+            appendConsole(localeStore.text("gui.project.taskCreateFailed"), kind: .error)
+            return
+        }
+
+        if createdTask.id != selectedTaskId {
+            await useTask(createdTask.id)
+        }
+
+        projectComposerText = ""
+        await startSession(with: request)
+        selectedSection = .session
     }
 
     func useTask(_ taskId: String) async {
@@ -623,5 +685,18 @@ final class WorkspaceStore: ObservableObject {
         sessionInputPipe = nil
         sessionIsRunning = false
         sessionProcessStatus = localeStore.text("gui.session.stopped")
+    }
+
+    private func deriveProjectTaskTitle(from request: String) -> String {
+        let firstLine = request
+            .split(whereSeparator: \.isNewline)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"[.!?…]+$"#, with: "", options: .regularExpression)
+        guard let firstLine, !firstLine.isEmpty else {
+            return localeStore.text("gui.project.defaultTaskTitle")
+        }
+        let words = firstLine.split(whereSeparator: \.isWhitespace)
+        return String(words.prefix(8).joined(separator: " ").prefix(64))
     }
 }

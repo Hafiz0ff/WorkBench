@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeRoot, resolveWithinRoot } from './security.js';
 import { ensureProjectMemory, readProjectState, updateProjectState } from './memory.js';
+import { ensureConversationFile } from './conversation.js';
 import { getCurrentRoleSelection, loadRoleProfile } from './roles.js';
 import { createTranslator, getDefaultLocale } from './i18n.js';
 
@@ -165,6 +166,7 @@ function renderTaskMarkdown(task, t) {
       `- ${t('task.model')}: ${task.model || t('common.notSet')}`,
       `- ${t('common.createdAt', { value: formatTimestamp(task.createdAt) })}`,
       `- ${t('common.updatedAt', { value: formatTimestamp(task.updatedAt) })}`,
+      `- ${t('task.lastSession')}: ${task.lastSessionId || t('common.notSet')}`,
       `- ${t('task.summary')}: ${task.summary || t('common.notSet')}`,
       '',
       `## ${t('task.request')}`,
@@ -315,6 +317,7 @@ async function readTaskStatus(projectRoot, location, id) {
     ...status,
     relevantFiles: Array.isArray(status.relevantFiles) ? status.relevantFiles : [],
     lastRunNotes: Array.isArray(status.lastRunNotes) ? status.lastRunNotes : [],
+    lastSessionId: status.lastSessionId || null,
   };
 }
 
@@ -375,6 +378,7 @@ function upsertIndexRecord(index, task, location) {
     userRequest: task.userRequest,
     relevantFiles: task.relevantFiles,
     lastRunNotes: task.lastRunNotes,
+    lastSessionId: task.lastSessionId || null,
     location,
     folder: path.join(location, task.id),
   });
@@ -415,6 +419,7 @@ function buildTaskContext(task, t) {
     `${t('task.status')}: ${getStatusLabel(task.status, t)}`,
     `${t('task.role')}: ${task.role || t('common.notSet')}`,
     `${t('task.model')}: ${task.model || t('common.notSet')}`,
+    `${t('task.lastSession')}: ${task.lastSessionId || t('common.notSet')}`,
     `${t('task.summary')}: ${task.summary || t('common.notSet')}`,
     '',
     `${t('task.request')}:`,
@@ -433,6 +438,7 @@ function formatTaskDetails(task, t) {
     `${t('task.status')}: ${getStatusLabel(task.status, t)}`,
     `${t('task.role')}: ${task.role || t('common.notSet')}`,
     `${t('task.model')}: ${task.model || t('common.notSet')}`,
+    `${t('task.lastSession')}: ${task.lastSessionId || t('common.notSet')}`,
     `${t('task.summary')}: ${task.summary || t('common.notSet')}`,
     `${t('task.request')}: ${task.userRequest || t('common.notSet')}`,
     `${t('task.relevantFiles')}: ${task.relevantFiles.length ? task.relevantFiles.join(', ') : t('common.notSet')}`,
@@ -515,6 +521,7 @@ export async function createTask(projectRoot, input = {}, locale = getDefaultLoc
     updatedAt: nowIso(),
     role: currentRoleProfile?.name || currentRole || null,
     model: currentModel,
+    lastSessionId: null,
     summary: String(input.summary || input.userRequest || title).trim(),
     userRequest: String(input.userRequest || title).trim(),
     relevantFiles: normalizeRelevantFiles(root, input.relevantFiles || []),
@@ -523,6 +530,7 @@ export async function createTask(projectRoot, input = {}, locale = getDefaultLoc
 
   const folder = getTaskFolder(root, FOLDER_KINDS.active, id);
   await ensureDirectory(folder);
+  await ensureConversationFile(folder);
   await writeTaskMarkdownFiles(root, FOLDER_KINDS.active, id, task, t, locale);
   await writeTaskStatus(root, FOLDER_KINDS.active, id, task);
 
@@ -598,6 +606,23 @@ export async function setCurrentTask(projectRoot, idOrSlug, locale = getDefaultL
     ...nextTask,
     location: task.location || FOLDER_KINDS.active,
   };
+}
+
+export async function setTaskLastSessionId(projectRoot, idOrSlug, sessionId, locale = getDefaultLocale()) {
+  const root = normalizeRoot(projectRoot);
+  const t = await createTranslator(locale);
+  const task = await resolveTask(root, idOrSlug);
+  if (!task) {
+    throw new Error(t('common.taskNotFound', { id: idOrSlug }));
+  }
+  const location = task.location || FOLDER_KINDS.active;
+  const nextTask = cloneTask(task, {
+    lastSessionId: sessionId || null,
+  });
+  await writeTaskStatus(root, location, task.id, nextTask);
+  const index = await readIndex(root);
+  await writeIndex(root, upsertIndexRecord(index, { ...nextTask, location }, location));
+  return { ...nextTask, location };
 }
 
 export async function getCurrentTaskContext(projectRoot, locale = getDefaultLocale()) {

@@ -9,6 +9,34 @@ const POLICY_SCHEMA_VERSION = 1;
 const DEFAULT_POLICY = {
   schemaVersion: POLICY_SCHEMA_VERSION,
   approvalMode: 'on-request',
+  autoMode: {
+    enabled: true,
+    requirePlanApproval: true,
+    testCommand: 'npm test',
+    testOnEachStep: true,
+    retryMax: 3,
+    maxSteps: 10,
+    abortOnTestFail: false,
+    allowedProviders: ['ollama', 'openai', 'anthropic', 'gemini'],
+  },
+  testRunner: {
+    command: '',
+    cwd: null,
+    timeout: 120000,
+    env: {},
+    autoRun: {
+      onPatchApply: true,
+      onAutoStep: true,
+    },
+    onFail: {
+      action: 'warn',
+      rollbackPatches: true,
+    },
+    history: {
+      keepLast: 100,
+    },
+    runners: [],
+  },
   allowedReadGlobs: ['**/*'],
   allowedWriteGlobs: [
     'src/**',
@@ -144,10 +172,14 @@ function normalizeStringList(values) {
 
 function normalizeApprovalMode(value) {
   const mode = String(value || DEFAULT_POLICY.approvalMode).trim().toLowerCase();
-  if (mode === 'strict' || mode === 'on-request' || mode === 'auto-safe') {
+  if (mode === 'strict' || mode === 'manual' || mode === 'on-request' || mode === 'review' || mode === 'auto-safe' || mode === 'auto' || mode === 'auto-with-tests') {
     return mode;
   }
   return DEFAULT_POLICY.approvalMode;
+}
+
+function isAutoLikeMode(mode) {
+  return ['auto-safe', 'auto', 'auto-with-tests'].includes(String(mode || '').trim().toLowerCase());
 }
 
 function normalizePolicy(policy = {}) {
@@ -162,6 +194,47 @@ function normalizePolicy(policy = {}) {
     ...DEFAULT_POLICY,
     ...policy,
     approvalMode: normalizeApprovalMode(policy.approvalMode),
+    autoMode: {
+      ...DEFAULT_POLICY.autoMode,
+      ...(policy.autoMode || {}),
+      retryMax: Number.isFinite(Number(policy.autoMode?.retryMax)) && Number(policy.autoMode?.retryMax) > 0
+        ? Math.floor(Number(policy.autoMode.retryMax))
+        : DEFAULT_POLICY.autoMode.retryMax,
+      maxSteps: Number.isFinite(Number(policy.autoMode?.maxSteps)) && Number(policy.autoMode?.maxSteps) > 0
+        ? Math.floor(Number(policy.autoMode.maxSteps))
+        : DEFAULT_POLICY.autoMode.maxSteps,
+      allowedProviders: normalizeStringList(policy.autoMode?.allowedProviders || DEFAULT_POLICY.autoMode.allowedProviders),
+      testCommand: typeof policy.autoMode?.testCommand === 'string' && policy.autoMode.testCommand.trim()
+        ? policy.autoMode.testCommand.trim()
+        : DEFAULT_POLICY.autoMode.testCommand,
+      enabled: policy.autoMode?.enabled !== false,
+      requirePlanApproval: policy.autoMode?.requirePlanApproval !== false,
+      testOnEachStep: policy.autoMode?.testOnEachStep !== false,
+      abortOnTestFail: policy.autoMode?.abortOnTestFail === true,
+    },
+    testRunner: {
+      ...DEFAULT_POLICY.testRunner,
+      ...(policy.testRunner || {}),
+      autoRun: {
+        ...DEFAULT_POLICY.testRunner.autoRun,
+        ...(policy.testRunner?.autoRun || {}),
+      },
+      onFail: {
+        ...DEFAULT_POLICY.testRunner.onFail,
+        ...(policy.testRunner?.onFail || {}),
+      },
+      history: {
+        ...DEFAULT_POLICY.testRunner.history,
+        ...(policy.testRunner?.history || {}),
+      },
+      runners: Array.isArray(policy.testRunner?.runners) ? policy.testRunner.runners : DEFAULT_POLICY.testRunner.runners,
+      timeout: Number.isFinite(Number(policy.testRunner?.timeout)) && Number(policy.testRunner?.timeout) > 0
+        ? Math.floor(Number(policy.testRunner.timeout))
+        : DEFAULT_POLICY.testRunner.timeout,
+      command: typeof policy.testRunner?.command === 'string' ? policy.testRunner.command.trim() : DEFAULT_POLICY.testRunner.command,
+      cwd: typeof policy.testRunner?.cwd === 'string' && policy.testRunner.cwd.trim() ? policy.testRunner.cwd.trim() : DEFAULT_POLICY.testRunner.cwd,
+      env: policy.testRunner?.env && typeof policy.testRunner.env === 'object' ? { ...policy.testRunner.env } : DEFAULT_POLICY.testRunner.env,
+    },
     allowedReadGlobs: normalizeStringList(allowedReadGlobs),
     allowedWriteGlobs: normalizeStringList(allowedWriteGlobs),
     blockedPaths: normalizeStringList(blockedPaths),
@@ -368,7 +441,7 @@ export function evaluatePathPolicy(policyInput, targetPath, operation = 'read', 
       });
     }
     return makeDecision(
-      policy.approvalMode === 'auto-safe' ? 'blocked' : 'approval_required',
+      isAutoLikeMode(policy.approvalMode) ? 'blocked' : 'approval_required',
       `Path is not listed in read allow globs: ${relativePath}`,
       {
         path: relativePath,
@@ -378,7 +451,7 @@ export function evaluatePathPolicy(policyInput, targetPath, operation = 'read', 
   }
 
   if (matchedAllowed) {
-    if (policy.approvalMode === 'auto-safe') {
+    if (isAutoLikeMode(policy.approvalMode)) {
       return makeDecision('allow', `Path allowed for write: ${relativePath}`, {
         path: relativePath,
         operation,
@@ -391,7 +464,7 @@ export function evaluatePathPolicy(policyInput, targetPath, operation = 'read', 
   }
 
   return makeDecision(
-    policy.approvalMode === 'auto-safe' ? 'blocked' : 'approval_required',
+    isAutoLikeMode(policy.approvalMode) ? 'blocked' : 'approval_required',
     `Path is not listed in write allow globs: ${relativePath}`,
     {
       path: relativePath,
@@ -427,7 +500,7 @@ export function evaluateCommandPolicy(policyInput, command, args = []) {
       });
     }
     return makeDecision(
-      policy.approvalMode === 'auto-safe' ? 'blocked' : 'approval_required',
+      isAutoLikeMode(policy.approvalMode) ? 'blocked' : 'approval_required',
       `Command is not listed as a safe read command: ${fullCommand}`,
       {
         command,
@@ -438,7 +511,7 @@ export function evaluateCommandPolicy(policyInput, command, args = []) {
   }
 
   if (category === 'validation') {
-    if (policy.approvalMode === 'auto-safe' && explicitlyAllowed && !requiresApprovalByRule) {
+    if (isAutoLikeMode(policy.approvalMode) && explicitlyAllowed && !requiresApprovalByRule) {
       return makeDecision('allow', `Validation command is allowed: ${fullCommand}`, {
         command,
         args,
@@ -461,7 +534,7 @@ export function evaluateCommandPolicy(policyInput, command, args = []) {
   }
 
   return makeDecision(
-    policy.approvalMode === 'auto-safe' && explicitlyAllowed ? 'allow' : 'approval_required',
+    isAutoLikeMode(policy.approvalMode) && explicitlyAllowed ? 'allow' : 'approval_required',
     `Command requires approval: ${fullCommand}`,
     {
       command,
@@ -475,6 +548,15 @@ export function getPolicySummary(policyInput) {
   const policy = normalizePolicy(policyInput);
   return {
     approvalMode: policy.approvalMode,
+    autoMode: { ...policy.autoMode },
+    testRunner: {
+      ...policy.testRunner,
+      runners: Array.isArray(policy.testRunner?.runners) ? [...policy.testRunner.runners] : [],
+      env: { ...(policy.testRunner?.env || {}) },
+      autoRun: { ...(policy.testRunner?.autoRun || {}) },
+      onFail: { ...(policy.testRunner?.onFail || {}) },
+      history: { ...(policy.testRunner?.history || {}) },
+    },
     allowedReadGlobs: [...policy.allowedReadGlobs],
     allowedWriteGlobs: [...policy.allowedWriteGlobs],
     blockedPaths: [...policy.blockedPaths],
@@ -486,4 +568,12 @@ export function getPolicySummary(policyInput) {
     },
     maxCommandOutputChars: policy.maxCommandOutputChars,
   };
+}
+
+export function getAutoModeConfig(policyInput) {
+  return normalizePolicy(policyInput).autoMode;
+}
+
+export function getTestRunnerConfig(policyInput) {
+  return normalizePolicy(policyInput).testRunner;
 }
