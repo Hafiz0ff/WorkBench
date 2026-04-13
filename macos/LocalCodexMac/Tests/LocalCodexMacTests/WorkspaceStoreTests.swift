@@ -217,4 +217,175 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.console.last?.kind.rawValue, ConsoleEntry.Kind.error.rawValue)
         XCTAssertEqual(store.console.last?.text, store.localeStore.text("gui.errors.extensionSourceMissing"))
     }
+
+    func testProjectInitAndRefreshRefreshSnapshotAfterFilesystemChanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runner = MockCLICommandRunner(projectRoot: root) { arguments, _, _ in
+            if arguments == ["project", "init"] {
+                try writeProjectState(root, activeRole: "senior-engineer", selectedModel: "qwen2.5-coder:14b")
+                try writeEmptyTaskIndex(root)
+            }
+            if arguments == ["project", "refresh"] {
+                try writeProjectState(root, activeRole: "software-architect", selectedModel: "qwen2.5-coder:14b")
+            }
+        }
+
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+
+        await store.initializeWorkspace()
+        XCTAssertTrue(store.snapshot?.memoryExists == true)
+        XCTAssertEqual(store.selectedSection, .project)
+
+        await store.refreshWorkspace()
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls, [["project", "init"], ["project", "refresh"]])
+        XCTAssertEqual(store.snapshot?.state?.activeRole, "software-architect")
+    }
+
+    func testPromptInspectRoutesRoleAndTaskIntoCLI() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try writeProjectState(root, activeRole: "senior-engineer", selectedModel: "qwen2.5-coder:14b")
+
+        let runner = MockCLICommandRunner(projectRoot: root)
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+        store.promptRoleOverride = "code-reviewer"
+        store.promptInstruction = "Review the auth flow"
+
+        await store.inspectPrompt()
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.first, ["prompt", "inspect", "--role", "code-reviewer", "--task", "Review the auth flow"])
+        XCTAssertEqual(store.selectedSection, .prompt)
+    }
+
+    func testPatchActionsRouteAndRefreshState() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try writeProjectState(root, activeRole: "senior-engineer", selectedModel: "qwen2.5-coder:14b")
+        let memoryRoot = root.appendingPathComponent(".local-codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryRoot, withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 1,
+          "patchId": "patch-1",
+          "status": "pending",
+          "taskId": "task-1",
+          "role": "senior-engineer",
+          "model": "qwen2.5-coder:14b",
+          "summary": "Update auth",
+          "approvalMode": "on-request",
+          "approvalStatus": "required",
+          "validationStatus": "pending",
+          "affectedFiles": [],
+          "validationCommands": []
+        }
+        """.write(to: memoryRoot.appendingPathComponent("pending-change.json"), atomically: true, encoding: .utf8)
+
+        let runner = MockCLICommandRunner(projectRoot: root) { arguments, _, _ in
+            if arguments == ["patch", "apply"] {
+                try writeProjectState(root, activeRole: "senior-engineer", selectedModel: "qwen2.5-coder:14b")
+                try """
+                {
+                  "schemaVersion": 1,
+                  "patchId": "patch-1",
+                  "status": "applied",
+                  "taskId": "task-1",
+                  "role": "senior-engineer",
+                  "model": "qwen2.5-coder:14b",
+                  "summary": "Update auth",
+                  "approvalMode": "on-request",
+                  "approvalStatus": "approved",
+                  "validationStatus": "passed",
+                  "affectedFiles": [],
+                  "validationCommands": []
+                }
+                """.write(to: memoryRoot.appendingPathComponent("pending-change.json"), atomically: true, encoding: .utf8)
+            }
+            if arguments == ["patch", "reject"] {
+                try """
+                {
+                  "schemaVersion": 1,
+                  "patchId": "patch-1",
+                  "status": "rejected",
+                  "taskId": "task-1",
+                  "role": "senior-engineer",
+                  "model": "qwen2.5-coder:14b",
+                  "summary": "Update auth",
+                  "approvalMode": "on-request",
+                  "approvalStatus": "rejected",
+                  "validationStatus": "skipped",
+                  "affectedFiles": [],
+                  "validationCommands": []
+                }
+                """.write(to: memoryRoot.appendingPathComponent("pending-change.json"), atomically: true, encoding: .utf8)
+            }
+        }
+
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+        await store.refreshSnapshot()
+        XCTAssertEqual(store.snapshot?.pendingPatch?.status, "pending")
+
+        await store.applyPatch()
+        XCTAssertEqual(store.selectedSection, .patches)
+        XCTAssertEqual(store.snapshot?.pendingPatch?.status, "applied")
+
+        await store.rejectPatch()
+        XCTAssertEqual(store.snapshot?.pendingPatch?.status, "rejected")
+    }
+
+    func testExtensionAndRegistryActionsRouteToExpectedCommands() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try writeProjectState(root)
+        let runner = MockCLICommandRunner(projectRoot: root) { arguments, _, _ in
+            if arguments == ["extensions", "doctor"] {
+                return
+            }
+            if arguments == ["registry", "refresh"] {
+                let memoryRoot = root.appendingPathComponent(".local-codex", isDirectory: true)
+                try FileManager.default.createDirectory(at: memoryRoot.appendingPathComponent("extensions", isDirectory: true), withIntermediateDirectories: true)
+                let catalog = """
+                {
+                  "schemaVersion": 1,
+                  "createdAt": "2026-04-13T00:00:00.000Z",
+                  "updatedAt": "2026-04-13T00:00:00.000Z",
+                  "sources": [],
+                  "entries": [],
+                  "issues": []
+                }
+                """
+                try catalog.write(to: memoryRoot.appendingPathComponent("extensions/catalog.json"), atomically: true, encoding: .utf8)
+            }
+        }
+
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+        store.extensionSourceInput = "owner/repo"
+        store.extensionPathInput = "packs/demo"
+        store.extensionRefInput = "main"
+
+        await store.installExtension()
+        await store.refreshExtensions()
+        await store.refreshRegistry()
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls[0], ["extensions", "install", "owner/repo", "--yes", "--path", "packs/demo", "--ref", "main"])
+        XCTAssertEqual(calls[1], ["extensions", "doctor"])
+        XCTAssertEqual(calls[2], ["registry", "refresh"])
+        XCTAssertEqual(store.selectedSection, .registry)
+    }
 }
