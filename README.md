@@ -251,6 +251,7 @@ What the GUI does:
 - reads the same `.local-codex/` files as the CLI
 - shows project, tasks, roles, prompt inspector, patches, policy, session, extensions, and registry views
 - runs the existing CLI engine through `node src/cli.js`
+- writes the engine root into the app bundle during the macOS build so Finder launches can still resolve the local CLI engine
 - does not keep a separate hidden source of truth
 
 Source of truth on disk:

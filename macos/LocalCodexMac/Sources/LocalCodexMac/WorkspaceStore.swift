@@ -72,7 +72,9 @@ final class WorkspaceStore: ObservableObject {
     ) {
         let storedProjectRoot = UserDefaults.standard.string(forKey: "localcodex.projectRoot") ?? ""
         let storedEngineRootOverride = UserDefaults.standard.string(forKey: "localcodex.engineRootOverride") ?? ""
+        let bundledEngineRoot = WorkspaceStore.resolveBundledEngineRoot()
         let engineRoot = WorkspaceStore.resolveEngineRoot(override: storedEngineRootOverride)
+            ?? bundledEngineRoot
             ?? EngineBridge.detectEngineRoot()
             ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         self.engineBridge = engineBridge ?? EngineBridge(engineRoot: engineRoot)
@@ -93,6 +95,16 @@ final class WorkspaceStore: ObservableObject {
         let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return URL(fileURLWithPath: trimmed)
+    }
+
+    static func resolveBundledEngineRoot(resourceURL: URL? = Bundle.main.resourceURL) -> URL? {
+        guard let resourceURL else { return nil }
+        let marker = resourceURL.appendingPathComponent("engine-root.txt")
+        guard let rawPath = try? String(contentsOf: marker, encoding: .utf8) else { return nil }
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: trimmed)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     var engineRootDisplay: String {

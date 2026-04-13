@@ -4,6 +4,18 @@ import XCTest
 
 @MainActor
 final class EngineBridgeTests: XCTestCase {
+    func testResolveBundledEngineRootReadsMarkerFile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let resourceURL = root.appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resourceURL, withIntermediateDirectories: true)
+        let engineRoot = root.appendingPathComponent("engine-root", isDirectory: true)
+        try FileManager.default.createDirectory(at: engineRoot, withIntermediateDirectories: true)
+        try "  \(engineRoot.path)\n".write(to: resourceURL.appendingPathComponent("engine-root.txt"), atomically: true, encoding: .utf8)
+
+        let resolved = WorkspaceStore.resolveBundledEngineRoot(resourceURL: resourceURL)
+        XCTAssertEqual(resolved?.standardizedFileURL.path, engineRoot.standardizedFileURL.path)
+    }
+
     func testResolveNodeExecutablePrefersExplicitEnvironmentOverride() throws {
         let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let explicitNode = tempRoot.appendingPathComponent("node")

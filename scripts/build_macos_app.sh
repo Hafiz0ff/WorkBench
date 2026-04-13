@@ -48,13 +48,14 @@ chmod +x "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
 
 RESOURCES_BUNDLE="$BIN_DIR/${EXECUTABLE_NAME}_${EXECUTABLE_NAME}.bundle"
 if [[ -d "$RESOURCES_BUNDLE" ]]; then
-  cp -R "$RESOURCES_BUNDLE" "$APP_BUNDLE/"
+cp -R "$RESOURCES_BUNDLE" "$APP_BUNDLE/"
 else
   echo "Не найден resource bundle для GUI." >&2
   exit 1
 fi
 
 cp "$ICNS_FILE" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+printf '%s\n' "$ROOT" > "$APP_BUNDLE/Contents/Resources/engine-root.txt"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
