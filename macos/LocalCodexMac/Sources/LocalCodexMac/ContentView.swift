@@ -22,6 +22,7 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
             .navigationTitle(store.localeStore.text("gui.app.title"))
         } detail: {
             Group {
@@ -115,12 +116,14 @@ private struct SidebarRow: View {
                 Text(title)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .layoutPriority(1)
                 }
             }
             Spacer(minLength: 8)

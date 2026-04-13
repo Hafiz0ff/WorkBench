@@ -18,21 +18,43 @@ struct ProjectView: View {
                 keyValueRow(store.localeStore.text("gui.project.engineRoot"), store.engineRootDisplay)
                 keyValueRow(store.localeStore.text("gui.project.memory"), store.snapshot?.memoryExists == true ? store.localeStore.text("gui.common.yes") : store.localeStore.text("gui.common.no"))
 
-                HStack {
-                    Button {
-                        store.chooseProjectFolder()
-                    } label: {
-                        Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Button {
+                            store.chooseProjectFolder()
+                        } label: {
+                            Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                        }
+                        Button {
+                            Task { await store.initializeWorkspace() }
+                        } label: {
+                            Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
+                        }
+                        Button {
+                            Task { await store.refreshWorkspace() }
+                        } label: {
+                            Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
+                        }
+                        Spacer(minLength: 12)
                     }
-                    Button {
-                        Task { await store.initializeWorkspace() }
-                    } label: {
-                        Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
-                    }
-                    Button {
-                        Task { await store.refreshWorkspace() }
-                    } label: {
-                        Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            store.chooseProjectFolder()
+                        } label: {
+                            Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await store.initializeWorkspace() }
+                            } label: {
+                                Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
+                            }
+                            Button {
+                                Task { await store.refreshWorkspace() }
+                            } label: {
+                                Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
+                            }
+                        }
                     }
                 }
 
@@ -56,15 +78,26 @@ struct TasksView: View {
                         TextField(store.localeStore.text("gui.tasks.titlePlaceholder"), text: $store.taskTitle)
                         TextField(store.localeStore.text("gui.tasks.requestPlaceholder"), text: $store.taskRequest, axis: .vertical)
                             .lineLimit(4, reservesSpace: true)
-                        HStack {
-                            Button {
-                                Task { await store.createTask() }
-                            } label: {
-                                Label(store.localeStore.text("gui.tasks.createButton"), systemImage: "plus")
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                Button {
+                                    Task { await store.createTask() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.tasks.createButton"), systemImage: "plus")
+                                }
+                                Spacer(minLength: 12)
+                                Text(store.localeStore.text("gui.tasks.createHint"))
+                                    .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            Text(store.localeStore.text("gui.tasks.createHint"))
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    Task { await store.createTask() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.tasks.createButton"), systemImage: "plus")
+                                }
+                                Text(store.localeStore.text("gui.tasks.createHint"))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .disabled(store.taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -143,16 +176,27 @@ struct RolesView: View {
     var body: some View {
         SectionShell(title: store.localeStore.text("gui.roles.title")) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Button {
-                        Task { await store.scaffoldRoles() }
-                    } label: {
-                        Label(store.localeStore.text("gui.roles.scaffold"), systemImage: "square.grid.2x2")
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Button {
+                            Task { await store.scaffoldRoles() }
+                        } label: {
+                            Label(store.localeStore.text("gui.roles.scaffold"), systemImage: "square.grid.2x2")
+                        }
+                        Spacer(minLength: 12)
+                        TextField(store.localeStore.text("gui.roles.filterPlaceholder"), text: $filterText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 180, idealWidth: 220, maxWidth: 280, alignment: .trailing)
                     }
-                    Spacer()
-                    TextField(store.localeStore.text("gui.roles.filterPlaceholder"), text: $filterText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 220)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            Task { await store.scaffoldRoles() }
+                        } label: {
+                            Label(store.localeStore.text("gui.roles.scaffold"), systemImage: "square.grid.2x2")
+                        }
+                        TextField(store.localeStore.text("gui.roles.filterPlaceholder"), text: $filterText)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 if let message = store.roleActionMessage {
@@ -227,18 +271,35 @@ struct ExtensionsView: View {
                 GroupBox(store.localeStore.text("gui.extensions.install")) {
                     VStack(alignment: .leading, spacing: 10) {
                         TextField(store.localeStore.text("gui.extensions.sourcePlaceholder"), text: $store.extensionSourceInput)
-                        HStack {
-                            TextField(store.localeStore.text("gui.extensions.pathPlaceholder"), text: $store.extensionPathInput)
-                            TextField(store.localeStore.text("gui.extensions.refPlaceholder"), text: $store.extensionRefInput)
-                        }
-                        HStack {
-                            Button {
-                                Task { await store.installExtension() }
-                            } label: {
-                                Label(store.localeStore.text("gui.extensions.installButton"), systemImage: "arrow.down.circle")
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                TextField(store.localeStore.text("gui.extensions.pathPlaceholder"), text: $store.extensionPathInput)
+                                TextField(store.localeStore.text("gui.extensions.refPlaceholder"), text: $store.extensionRefInput)
                             }
-                            Text(store.localeStore.text("gui.extensions.installHint"))
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                TextField(store.localeStore.text("gui.extensions.pathPlaceholder"), text: $store.extensionPathInput)
+                                TextField(store.localeStore.text("gui.extensions.refPlaceholder"), text: $store.extensionRefInput)
+                            }
+                        }
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                Button {
+                                    Task { await store.installExtension() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.extensions.installButton"), systemImage: "arrow.down.circle")
+                                }
+                                Text(store.localeStore.text("gui.extensions.installHint"))
+                                    .foregroundStyle(.secondary)
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    Task { await store.installExtension() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.extensions.installButton"), systemImage: "arrow.down.circle")
+                                }
+                                Text(store.localeStore.text("gui.extensions.installHint"))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Label(store.localeStore.text("gui.extensions.rawGitHubWarning"), systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
@@ -392,16 +453,27 @@ struct RegistryView: View {
                     .init(label: store.localeStore.text("gui.registry.state"), value: store.registryStateDisplay, tint: .purple, symbol: "checklist"),
                 ])
 
-                HStack {
-                    Button {
-                        Task { await store.refreshRegistry() }
-                    } label: {
-                        Label(store.localeStore.text("gui.registry.refresh"), systemImage: "arrow.clockwise")
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Button {
+                            Task { await store.refreshRegistry() }
+                        } label: {
+                            Label(store.localeStore.text("gui.registry.refresh"), systemImage: "arrow.clockwise")
+                        }
+                        Spacer(minLength: 12)
+                        TextField(store.localeStore.text("gui.registry.filterPlaceholder"), text: $filterText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 180, idealWidth: 240, maxWidth: 320, alignment: .trailing)
                     }
-                    Spacer()
-                    TextField(store.localeStore.text("gui.registry.filterPlaceholder"), text: $filterText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 240)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            Task { await store.refreshRegistry() }
+                        } label: {
+                            Label(store.localeStore.text("gui.registry.refresh"), systemImage: "arrow.clockwise")
+                        }
+                        TextField(store.localeStore.text("gui.registry.filterPlaceholder"), text: $filterText)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 let entries = store.snapshot?.registryCatalog?.entries ?? []
@@ -545,14 +617,25 @@ struct PromptInspectorView: View {
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
                     }
                 }
-                HStack {
-                    Button {
-                        Task { await store.inspectPrompt() }
-                    } label: {
-                        Label(store.localeStore.text("gui.prompt.inspect"), systemImage: "wand.and.stars")
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Button {
+                            Task { await store.inspectPrompt() }
+                        } label: {
+                            Label(store.localeStore.text("gui.prompt.inspect"), systemImage: "wand.and.stars")
+                        }
+                        Text(store.localeStore.text("gui.prompt.hint"))
+                            .foregroundStyle(.secondary)
                     }
-                    Text(store.localeStore.text("gui.prompt.hint"))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            Task { await store.inspectPrompt() }
+                        } label: {
+                            Label(store.localeStore.text("gui.prompt.inspect"), systemImage: "wand.and.stars")
+                        }
+                        Text(store.localeStore.text("gui.prompt.hint"))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 GroupBox(store.localeStore.text("gui.prompt.output")) {
                     if store.console.isEmpty {
@@ -593,28 +676,56 @@ struct PatchesView: View {
                 keyValueRow(store.localeStore.text("gui.patch.approvalMode"), store.approvalModeDisplay)
                 keyValueRow(store.localeStore.text("gui.patch.validation"), store.snapshot?.pendingPatch?.validationStatus ?? store.localeStore.text("gui.common.notSet"))
 
-                HStack(spacing: 12) {
-                    Button {
-                        Task { await store.inspectDiff() }
-                    } label: {
-                        Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        Button {
+                            Task { await store.inspectDiff() }
+                        } label: {
+                            Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
+                        }
+                        Button {
+                            Task { await store.patchStatus() }
+                        } label: {
+                            Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        Button {
+                            Task { await store.applyPatch() }
+                        } label: {
+                            Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
+                        }
+                        Button {
+                            Task { await store.rejectPatch() }
+                        } label: {
+                            Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
+                        }
+                        Spacer()
                     }
-                    Button {
-                        Task { await store.patchStatus() }
-                    } label: {
-                        Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await store.inspectDiff() }
+                            } label: {
+                                Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
+                            }
+                            Button {
+                                Task { await store.patchStatus() }
+                            } label: {
+                                Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
+                            }
+                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await store.applyPatch() }
+                            } label: {
+                                Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
+                            }
+                            Button {
+                                Task { await store.rejectPatch() }
+                            } label: {
+                                Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
+                            }
+                        }
                     }
-                    Button {
-                        Task { await store.applyPatch() }
-                    } label: {
-                        Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
-                    }
-                    Button {
-                        Task { await store.rejectPatch() }
-                    } label: {
-                        Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
-                    }
-                    Spacer()
                 }
 
                 GroupBox(store.localeStore.text("gui.patch.diff")) {
@@ -705,50 +816,104 @@ struct SessionView: View {
                 TextField(store.localeStore.text("gui.session.inputPlaceholder"), text: $store.sessionInput)
                     .textFieldStyle(.roundedBorder)
 
-                HStack(spacing: 12) {
-                    Button {
-                        let request = store.sessionInput
-                        Task { await store.startSession(with: request) }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.start"), systemImage: "play.circle")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        Button {
+                            let request = store.sessionInput
+                            Task { await store.startSession(with: request) }
+                        } label: {
+                            Label(store.localeStore.text("gui.session.start"), systemImage: "play.circle")
+                        }
+                        Button {
+                            store.sendSessionInput(store.sessionInput)
+                        } label: {
+                            Label(store.localeStore.text("gui.session.send"), systemImage: "arrow.up.circle")
+                        }
+                        Button {
+                            store.stopSession()
+                        } label: {
+                            Label(store.localeStore.text("gui.session.stop"), systemImage: "stop.circle")
+                        }
+                        Spacer()
+                        Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
+                            .foregroundStyle(.secondary)
                     }
-                    Button {
-                        store.sendSessionInput(store.sessionInput)
-                    } label: {
-                        Label(store.localeStore.text("gui.session.send"), systemImage: "arrow.up.circle")
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Button {
+                                let request = store.sessionInput
+                                Task { await store.startSession(with: request) }
+                            } label: {
+                                Label(store.localeStore.text("gui.session.start"), systemImage: "play.circle")
+                            }
+                            Button {
+                                store.sendSessionInput(store.sessionInput)
+                            } label: {
+                                Label(store.localeStore.text("gui.session.send"), systemImage: "arrow.up.circle")
+                            }
+                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                store.stopSession()
+                            } label: {
+                                Label(store.localeStore.text("gui.session.stop"), systemImage: "stop.circle")
+                            }
+                            Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Button {
-                        store.stopSession()
-                    } label: {
-                        Label(store.localeStore.text("gui.session.stop"), systemImage: "stop.circle")
-                    }
-                    Spacer()
-                    Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
-                        .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 12) {
-                    Button {
-                        Task { await store.inspectPrompt() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        Button {
+                            Task { await store.inspectPrompt() }
+                        } label: {
+                            Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
+                        }
+                        Button {
+                            Task { await store.inspectDiff() }
+                        } label: {
+                            Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
+                        }
+                        Button {
+                            Task { await store.applyPatch() }
+                        } label: {
+                            Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
+                        }
+                        Button {
+                            Task { await store.rejectPatch() }
+                        } label: {
+                            Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
+                        }
+                        Spacer()
                     }
-                    Button {
-                        Task { await store.inspectDiff() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await store.inspectPrompt() }
+                            } label: {
+                                Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
+                            }
+                            Button {
+                                Task { await store.inspectDiff() }
+                            } label: {
+                                Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
+                            }
+                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await store.applyPatch() }
+                            } label: {
+                                Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
+                            }
+                            Button {
+                                Task { await store.rejectPatch() }
+                            } label: {
+                                Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
+                            }
+                        }
                     }
-                    Button {
-                        Task { await store.applyPatch() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
-                    }
-                    Button {
-                        Task { await store.rejectPatch() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
-                    }
-                    Spacer()
                 }
 
                 GroupBox(store.localeStore.text("gui.session.output")) {
@@ -921,16 +1086,27 @@ struct EmptyStateView: View {
 }
 
 private func keyValueRow(_ label: String, _ value: String) -> some View {
-    HStack(alignment: .top, spacing: 12) {
-        Text(label)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .frame(width: 200, alignment: .leading)
-        Text(value)
-            .font(.subheadline)
-            .lineLimit(2)
-            .truncationMode(.tail)
-        Spacer()
+    ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 140, idealWidth: 180, maxWidth: 220, alignment: .leading)
+            Text(value)
+                .font(.subheadline)
+                .lineLimit(2)
+                .truncationMode(.tail)
+            Spacer()
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline)
+                .lineLimit(3)
+                .truncationMode(.tail)
+        }
     }
 }
 
