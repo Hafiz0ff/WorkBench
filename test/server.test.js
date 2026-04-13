@@ -20,12 +20,15 @@ async function cleanup(root) {
 }
 
 async function startTestServer(root) {
-  const { url } = await startServer(root, { port: 0, open: false });
+  const { url } = await startServer(root, { port: 0, host: '0.0.0.0', open: false });
   return { url };
 }
 
 test('server exposes project, tasks, providers and tests APIs', async (t) => {
   const root = await createProjectRoot();
+  const previousHome = process.env.WORKBENCH_HOME;
+  const workbenchHome = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-server-home-'));
+  process.env.WORKBENCH_HOME = workbenchHome;
   await setProviderApiKey(root, 'openai', 'sk-test-secret');
   const task = await createTask(root, {
     title: 'API dashboard task',
@@ -59,6 +62,8 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   t.after(async () => {
     await stopServer(root).catch(() => {});
     await cleanup(root);
+    process.env.WORKBENCH_HOME = previousHome;
+    await fs.rm(workbenchHome, { recursive: true, force: true });
   });
 
   const status = await fetch(`${url}/api/v1/project/status`).then((response) => response.json());
@@ -76,6 +81,20 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   const providerText = JSON.stringify(providers);
   assert.ok(providerText.includes('"name":"openai"'));
   assert.ok(!providerText.includes('sk-test-secret'));
+
+  const workspaces = await fetch(`${url}/api/v1/workspaces`).then((response) => response.json());
+  assert.ok(Array.isArray(workspaces.workspaces));
+  assert.equal(workspaces.workspaces[0].path, root);
+
+  const workspaceSwitch = await fetch(`${url}/api/v1/workspaces/${encodeURIComponent(workspaces.workspaces[0].id)}/switch`, {
+    method: 'POST',
+  }).then((response) => response.json());
+  assert.equal(workspaceSwitch.ok, true);
+
+  const workspaceRefresh = await fetch(`${url}/api/v1/workspaces/refresh`, {
+    method: 'POST',
+  }).then((response) => response.json());
+  assert.ok(workspaceRefresh.count >= 1);
 
   const registry = await fetch(`${url}/api/v1/registry`).then((response) => response.json());
   assert.ok(Array.isArray(registry.entries));

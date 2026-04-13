@@ -84,6 +84,23 @@ import {
   setProviderApiKey,
   useProvider,
 } from './providers/index.js';
+import {
+  addWorkspace,
+  getCurrentWorkspace,
+  getWorkspaceConfigPath,
+  initGlobal as initGlobalWorkspace,
+  listWorkspaces,
+  pinWorkspace,
+  readGlobalConfig,
+  refreshSnapshot as refreshWorkspaceSnapshot,
+  removeWorkspace,
+  renameWorkspace,
+  repairWorkspaces,
+  searchWorkspaces,
+  switchWorkspace,
+  tagWorkspace,
+  writeGlobalConfig,
+} from './workspace.js';
 import { BASE_SYSTEM_INSTRUCTIONS, composePromptLayers, formatPromptInspection } from './prompt-composer.js';
 import {
   abortRun as abortAutoRun,
@@ -147,6 +164,27 @@ function parseOptions(argv) {
     }
     if (value === '--role') {
       options.role = argv[++i];
+      continue;
+    }
+    if (value === '--alias') {
+      options.alias = argv[++i];
+      continue;
+    }
+    if (value === '--tag') {
+      options.tags = options.tags || [];
+      options.tags.push(argv[++i]);
+      continue;
+    }
+    if (value === '--pin') {
+      options.pin = true;
+      continue;
+    }
+    if (value === '--sort') {
+      options.sort = argv[++i];
+      continue;
+    }
+    if (value === '--set') {
+      options.set = argv[++i];
       continue;
     }
     if (value === '--depth') {
@@ -238,6 +276,15 @@ function parseOptions(argv) {
       options.clear = true;
       continue;
     }
+    if (value === '--pinned') {
+      options.pinned = true;
+      options.pin = true;
+      continue;
+    }
+    if (value === '--confirm') {
+      options.confirm = true;
+      continue;
+    }
     if (value === '--dry-run') {
       options.dryRun = true;
       continue;
@@ -307,6 +354,259 @@ function deriveTaskTitle(taskText) {
 
 function printUsage(t) {
   console.log(`${t('help.title')}\n\n${t('help.usage')}\n\n${t('help.examples')}`);
+}
+
+function formatRelativeTime(value, locale = 'ru') {
+  if (!value) {
+    return '—';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  const diffMs = date.getTime() - Date.now();
+  const diffAbs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  if (diffAbs < minute) {
+    return locale.startsWith('ru') ? 'сейчас' : 'just now';
+  }
+  if (diffAbs < hour) {
+    return rtf.format(Math.round(diffMs / minute), 'minute');
+  }
+  if (diffAbs < day) {
+    return rtf.format(Math.round(diffMs / hour), 'hour');
+  }
+  return rtf.format(Math.round(diffMs / day), 'day');
+}
+
+function formatWorkspaceSnapshot(workspace, locale) {
+  const snapshot = workspace.snapshot || {};
+  const providerModel = [snapshot.provider || workspace.provider || '—', snapshot.model || workspace.model || '—'].join('/');
+  const role = snapshot.role || workspace.role || '—';
+  const task = snapshot.activeTask || workspace.activeTask || '—';
+  const taskCount = Number.isFinite(snapshot.taskCount) ? snapshot.taskCount : 0;
+  return `${providerModel}  Роль: ${role}  Задача: ${task}  ${taskCount} задач  ${formatRelativeTime(workspace.lastOpenedAt, locale)}`;
+}
+
+function printWorkspaceLine(workspace, locale) {
+  const marker = workspace.current ? '→' : workspace.pinned ? '📌' : ' ';
+  const availability = workspace.available === false ? ' [недоступен]' : '';
+  console.log(`${marker} ${workspace.alias}${workspace.name && workspace.name !== workspace.alias ? ` — ${workspace.name}` : ''}${availability}`);
+  console.log(`  ${workspace.path}`);
+  console.log(`  ${formatWorkspaceSnapshot(workspace, locale)}`);
+}
+
+function printWorkspaceCompact(workspace, locale) {
+  const marker = workspace.current ? '→' : workspace.pinned ? '📌' : ' ';
+  const availability = workspace.available === false ? ' [недоступен]' : '';
+  console.log(`${marker} ${workspace.alias}${availability}   ${workspace.path}   ${formatWorkspaceSnapshot(workspace, locale)}`);
+}
+
+async function promptWorkspaceSelection(workspaces, t, locale) {
+  if (!workspaces.length) {
+    return null;
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return workspaces[0] || null;
+  }
+
+  const rl = readline.createInterface({ input, output });
+  try {
+    console.log(t('workspace.selectTitle'));
+    workspaces.forEach((workspace, index) => {
+      const marker = workspace.current ? '→' : workspace.pinned ? '📌' : ' ';
+      const summary = workspace.available === false ? ' [недоступен]' : '';
+      console.log(`  ${index + 1}. ${marker} ${workspace.alias}${summary} — ${workspace.path}`);
+    });
+    const answer = await rl.question(`${t('workspace.selectPrompt')} `);
+    const trimmed = String(answer || '').trim();
+    if (!trimmed) {
+      return null;
+    }
+    const index = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(index) && index >= 1 && index <= workspaces.length) {
+      return workspaces[index - 1];
+    }
+    return workspaces.find((workspace) => workspace.alias === trimmed) || null;
+  } finally {
+    rl.close();
+  }
+}
+
+function parseWorkspaceConfigPatch(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return null;
+  }
+  const [key, ...rest] = raw.split('=');
+  if (!key || !rest.length) {
+    return null;
+  }
+  const normalizedKey = key.trim();
+  const normalizedValue = rest.join('=').trim();
+  if (!normalizedKey) {
+    return null;
+  }
+  if (normalizedValue === 'true' || normalizedValue === 'false') {
+    return { [normalizedKey]: normalizedValue === 'true' };
+  }
+  if (Number.isFinite(Number(normalizedValue)) && normalizedValue !== '') {
+    return { [normalizedKey]: Number(normalizedValue) };
+  }
+  return { [normalizedKey]: normalizedValue };
+}
+
+async function runProjectStart(projectPath, options, t, locale) {
+  const project = await openProject(projectPath);
+  await prepareProjectWorkspace(project.root, { scaffoldRoles: true });
+  await addWorkspace(project.root, {
+    alias: options.alias || undefined,
+    tags: options.tags || [],
+    pin: options.pin === true ? true : options.pin === false ? false : undefined,
+  });
+
+  const state = await readProjectState(project.root);
+  const policy = await readProjectPolicy(project.root);
+  const selectedProvider = await getProvider(project.root, options.provider || state?.selectedProvider || null);
+  const model = options.model || state?.selectedModel || selectedProvider.defaultModel;
+  const resolvedRole = await resolveRoleSelection(project.root, options.role || state?.activeRole || null);
+  let currentTask = await getCurrentTask(project.root);
+  const initialTaskInstruction = String(options.task || '').trim();
+  if (initialTaskInstruction) {
+    const createdTask = await createTask(project.root, {
+      title: deriveTaskTitle(initialTaskInstruction),
+      userRequest: initialTaskInstruction,
+      summary: initialTaskInstruction,
+      role: resolvedRole.name,
+      model,
+    }, locale);
+    await setCurrentTask(project.root, createdTask.id, locale);
+    currentTask = await getCurrentTask(project.root);
+  }
+  const sessionId = createSessionId();
+  const conversation = await loadConversationBundle(project.root, currentTask, {
+    provider: selectedProvider,
+    model,
+    locale,
+  });
+  const statePatch = {
+    activeRole: resolvedRole.name,
+    currentTaskId: currentTask?.id || null,
+  };
+  if (!options.provider && !options.model) {
+    statePatch.selectedProvider = selectedProvider.name;
+    statePatch.selectedModel = model;
+  }
+  await updateProjectState(project.root, statePatch);
+  if (currentTask) {
+    await setTaskLastSessionId(project.root, currentTask.id, sessionId, locale);
+  }
+
+  const memoryContext = await summarizeCurrentMemory(project.root);
+  const taskContext = currentTask ? await getCurrentTaskContext(project.root, locale) : '';
+  const extensionPrompts = await listEnabledExtensionPromptPacks(project.root);
+  const allowedShellCommands = await listAllowedShellCommands(project.root);
+  console.log(t('project.loaded', { path: project.root }));
+  console.log(t('project.workspacePrepared'));
+  console.log(t('project.readyHint'));
+  console.log(`${t('common.projectRoot')}: ${project.root}`);
+  console.log(t('common.selectedProvider', { provider: selectedProvider.name }));
+  console.log(t('common.activeRole', { role: resolvedRole.name }));
+  console.log(t('common.selectedModel', { model }));
+  console.log(t('common.currentTask', { id: currentTask ? `${currentTask.id} (${currentTask.title})` : t('common.notSet') }));
+  if (conversation.totalMessages > 0) {
+    console.log(t('task.continueLoaded', {
+      messages: conversation.totalMessages,
+      sessions: conversation.sessionCount,
+      limit: conversation.contextWindow?.historyMessages || 20,
+    }));
+  }
+  if (initialTaskInstruction && currentTask) {
+    console.log(t('agent.taskStarted', { id: currentTask.id, title: currentTask.title }));
+  }
+  if (conversation.summaryGenerated) {
+    console.log(t('task.conversationSummaryGenerated'));
+  }
+
+  await runInteractiveAgent({
+    root: project.root,
+    model,
+    provider: selectedProvider,
+    promptLabel: t('agent.promptLabel'),
+    exitHint: t('agent.exitHint'),
+    helpHint: t('agent.helpHint'),
+    initialUserInput: initialTaskInstruction,
+    initialConversationHistory: conversation.recentMessages,
+    composePromptForTask: async (taskInstruction) => composePromptLayers({
+      baseInstructions: BASE_SYSTEM_INSTRUCTIONS,
+      roleProfile: resolvedRole,
+      memorySummary: memoryContext,
+      taskContext,
+      conversationSummary: conversation.summary,
+      extensionPrompts,
+      taskInstruction,
+      allowedShellCommands,
+      projectRoot: project.root,
+    }),
+    policy,
+    t,
+    taskTools: currentTask ? {
+      currentTaskId: currentTask.id,
+      currentRole: resolvedRole.name,
+      currentModel: model,
+      currentSessionId: sessionId,
+      appendNote: async ({ taskId, kind, text, source }) => appendTaskNote(project.root, taskId, {
+        kind,
+        text,
+        source,
+      }, { locale }),
+      onTurnComplete: async ({ userInput, assistantMessage, toolResults }) => {
+        const pieces = [];
+        const taskDir = getTaskFolderPath(project.root, currentTask);
+        if (userInput) {
+          await appendConversationMessage(taskDir, {
+            id: createMessageId(),
+            role: 'user',
+            content: userInput,
+            timestamp: new Date().toISOString(),
+            provider: selectedProvider.name,
+            model,
+            sessionId,
+          });
+          pieces.push(`Запрос: ${userInput}`);
+        }
+        if (assistantMessage) {
+          await appendConversationMessage(taskDir, {
+            id: createMessageId(),
+            role: 'assistant',
+            content: assistantMessage,
+            timestamp: new Date().toISOString(),
+            provider: selectedProvider.name,
+            model,
+            sessionId,
+          });
+          pieces.push(`Ответ: ${assistantMessage}`);
+        }
+        if (toolResults.length) {
+          pieces.push(`Инструменты: ${toolResults.map(({ call }) => call.tool).join(', ')}`);
+        }
+        const noteText = pieces.join('\n');
+        if (noteText.trim()) {
+          await appendTaskNote(project.root, currentTask.id, {
+            kind: toolResults.some(({ call }) => call.tool === 'run_shell') ? 'validation result' : 'finding',
+            text: noteText.slice(0, 1200),
+            source: 'agent',
+          }, { locale });
+        }
+        await setTaskLastSessionId(project.root, currentTask.id, sessionId, locale);
+      },
+    } : {
+      onTurnComplete: async () => {},
+    },
+  });
 }
 
 function printRoleSummary(profile, t, { active = false } = {}) {
@@ -827,6 +1127,209 @@ async function handleProviderCommand(subcommand, options, t, locale) {
         : t('provider.healthFailed', { reason: entry.health.message || t('common.notSet') });
       console.log(`${entry.name}: ${label}`);
     }
+    return;
+  }
+
+  printUsage(t);
+}
+
+async function handleWorkspaceCommand(subcommand, options, t, locale) {
+  await initGlobalWorkspace();
+
+  if (subcommand === 'add') {
+    const projectPath = options._[0] || process.cwd();
+    const workspace = await addWorkspace(projectPath, {
+      alias: options.alias || null,
+      tags: options.tags || [],
+      pin: options.pin === true,
+    });
+    console.log(`Добавлен workspace: ${workspace.alias} → ${workspace.path}`);
+    return;
+  }
+
+  if (subcommand === 'list') {
+    const workspaces = await listWorkspaces({
+      pinned: options.pinned === true,
+      tag: options.tags?.[0] || null,
+      sort: options.sort || null,
+    });
+    console.log(`Воркспейсы (${workspaces.length})`);
+    if (!workspaces.length) {
+      console.log('Реестр пуст.');
+      return;
+    }
+    for (const workspace of workspaces) {
+      printWorkspaceCompact(workspace, locale);
+    }
+    return;
+  }
+
+  if (subcommand === 'switch') {
+    const workspaces = await listWorkspaces({ sort: options.sort || null });
+    if (!workspaces.length) {
+      console.log('Реестр воркспейсов пуст. Запускаю текущую папку.');
+      await runProjectStart(process.cwd(), options, t, locale);
+      return;
+    }
+    let target = options._[0] || null;
+    if (!target) {
+      const selected = await promptWorkspaceSelection(workspaces, t, locale);
+      if (!selected) {
+        console.log('Выбор отменён.');
+        return;
+      }
+      target = selected.alias;
+    }
+    const workspace = await switchWorkspace(target);
+    console.log(`Переключение на: ${workspace.alias} (${workspace.path})`);
+    console.log(`Провайдер: ${workspace.snapshot.provider || '—'}/${workspace.snapshot.model || '—'}`);
+    console.log(`Роль: ${workspace.snapshot.role || '—'}`);
+    console.log(`Активная задача: ${workspace.snapshot.activeTask || '—'}`);
+    console.log('Запуск агента...');
+    await runProjectStart(workspace.path, {
+      ...options,
+      provider: options.provider || workspace.snapshot.provider || null,
+      model: options.model || workspace.snapshot.model || null,
+    }, t, locale);
+    return;
+  }
+
+  if (subcommand === 'status') {
+    const target = options._[0] || null;
+    if (target) {
+      const workspaces = await listWorkspaces({ sort: options.sort || null });
+      const workspace = workspaces.find((item) => item.alias === target || item.id === target) || null;
+      if (!workspace) {
+        console.log(`Воркспейс не найден: ${target}`);
+        return;
+      }
+      console.log(`Воркспейс: ${workspace.alias}`);
+      console.log(`Имя: ${workspace.name}`);
+      console.log(`Путь: ${workspace.path}`);
+      console.log(`Доступен: ${workspace.available === false ? 'нет' : 'да'}`);
+      console.log(`Провайдер: ${workspace.snapshot.provider || '—'}`);
+      console.log(`Модель: ${workspace.snapshot.model || '—'}`);
+      console.log(`Роль: ${workspace.snapshot.role || '—'}`);
+      console.log(`Активная задача: ${workspace.snapshot.activeTask || '—'}`);
+      console.log(`Задач всего: ${workspace.snapshot.taskCount || 0}`);
+      console.log(`Последнее открытие: ${formatRelativeTime(workspace.lastOpenedAt, locale)}`);
+      return;
+    }
+    const workspaces = await listWorkspaces({ sort: options.sort || null });
+    console.log(`Статус всех проектов (${workspaces.length})`);
+    for (const workspace of workspaces) {
+      printWorkspaceCompact(workspace, locale);
+    }
+    return;
+  }
+
+  if (subcommand === 'remove') {
+    const target = options._[0];
+    if (!target) {
+      throw new Error('Нужно указать alias или id воркспейса.');
+    }
+    if (!options.confirm) {
+      const approved = await promptConfirmation(`Удалить ${target} из реестра? [y/N]`);
+      if (!approved) {
+        console.log('Удаление отменено.');
+        return;
+      }
+    }
+    const removed = await removeWorkspace(target);
+    console.log(`Удалён из реестра: ${removed.alias}`);
+    return;
+  }
+
+  if (subcommand === 'rename') {
+    const target = options._[0];
+    const nextAlias = options._[1];
+    if (!target || !nextAlias) {
+      throw new Error('Нужно указать alias и новый alias.');
+    }
+    const workspace = await renameWorkspace(target, nextAlias);
+    console.log(`Переименован: ${target} → ${workspace.alias}`);
+    return;
+  }
+
+  if (subcommand === 'pin' || subcommand === 'unpin') {
+    const target = options._[0];
+    if (!target) {
+      throw new Error('Нужно указать alias или id воркспейса.');
+    }
+    const workspace = await pinWorkspace(target, subcommand === 'pin');
+    console.log(`${subcommand === 'pin' ? '📌' : '◦'} ${workspace.alias} ${subcommand === 'pin' ? 'закреплён' : 'откреплён'}`);
+    return;
+  }
+
+  if (subcommand === 'tag' || subcommand === 'untag') {
+    const target = options._[0];
+    const tag = options._[1];
+    if (!target || !tag) {
+      throw new Error('Нужно указать alias и тег.');
+    }
+    const workspace = await tagWorkspace(target, tag, subcommand === 'untag');
+    console.log(`${workspace.alias}: ${subcommand === 'tag' ? 'добавлен' : 'удалён'} тег ${tag}`);
+    return;
+  }
+
+  if (subcommand === 'search') {
+    const query = options._[0];
+    if (!query) {
+      throw new Error('Нужно указать поисковый запрос.');
+    }
+    const results = await searchWorkspaces(query);
+    console.log(`Поиск: ${query}`);
+    if (!results.length) {
+      console.log('Совпадений не найдено.');
+      return;
+    }
+    for (const workspace of results) {
+      printWorkspaceCompact(workspace, locale);
+    }
+    return;
+  }
+
+  if (subcommand === 'refresh') {
+    const target = options._[0] || null;
+    if (target) {
+      const workspace = await refreshWorkspaceSnapshot(target);
+      console.log(`Snapshot обновлён: ${workspace.alias}`);
+      return;
+    }
+    const workspaces = await listWorkspaces();
+    for (const workspace of workspaces) {
+      await refreshWorkspaceSnapshot(workspace.alias);
+    }
+    console.log(`Обновлены snapshots для всех воркспейсов (${workspaces.length})`);
+    return;
+  }
+
+  if (subcommand === 'config') {
+    if (options.set) {
+      const patch = parseWorkspaceConfigPatch(options.set);
+      if (!patch) {
+        throw new Error('Формат --set должен быть key=value.');
+      }
+      const next = await writeGlobalConfig(patch);
+      console.log(`Глобальный конфиг обновлён: ${getWorkspaceConfigPath()}`);
+      console.log(`defaultProvider: ${next.defaultProvider}`);
+      console.log(`defaultModel: ${next.defaultModel}`);
+      console.log(`autoRefreshOnSwitch: ${next.autoRefreshOnSwitch ? 'true' : 'false'}`);
+      return;
+    }
+    const config = await readGlobalConfig();
+    console.log(`Глобальный конфиг: ${getWorkspaceConfigPath()}`);
+    console.log(`defaultProvider: ${config.defaultProvider}`);
+    console.log(`defaultModel: ${config.defaultModel}`);
+    console.log(`autoRefreshOnSwitch: ${config.autoRefreshOnSwitch ? 'true' : 'false'}`);
+    console.log(`listSort: ${config.listSort}`);
+    console.log(`dateLocale: ${config.dateLocale}`);
+    return;
+  }
+
+  if (subcommand === 'repair') {
+    const workspaces = await repairWorkspaces();
+    console.log(`Реестр восстановлен. Найдено проектов: ${workspaces.length}`);
     return;
   }
 
@@ -2104,6 +2607,11 @@ async function main() {
     return;
   }
 
+  if (command === 'workspace') {
+    await handleWorkspaceCommand(subcommand, options, t, locale);
+    return;
+  }
+
   if (command === 'memory') {
     await handleMemoryCommand(subcommand, options, t, locale);
     return;
@@ -2155,148 +2663,7 @@ async function main() {
     if (!projectPath) {
       throw new Error(t('errors.projectPathMissing'));
     }
-    const project = await openProject(projectPath);
-    await prepareProjectWorkspace(project.root, { scaffoldRoles: true });
-
-    const state = await readProjectState(project.root);
-    const policy = await readProjectPolicy(project.root);
-    const selectedProvider = await getProvider(project.root, options.provider || state?.selectedProvider || null);
-    const model = options.model || state?.selectedModel || selectedProvider.defaultModel;
-    const resolvedRole = await resolveRoleSelection(project.root, options.role || state?.activeRole || null);
-    let currentTask = await getCurrentTask(project.root);
-    const initialTaskInstruction = String(options.task || '').trim();
-    if (initialTaskInstruction) {
-      const createdTask = await createTask(project.root, {
-        title: deriveTaskTitle(initialTaskInstruction),
-        userRequest: initialTaskInstruction,
-        summary: initialTaskInstruction,
-        role: resolvedRole.name,
-        model,
-      }, locale);
-      await setCurrentTask(project.root, createdTask.id, locale);
-      currentTask = await getCurrentTask(project.root);
-    }
-    const sessionId = createSessionId();
-    const conversation = await loadConversationBundle(project.root, currentTask, {
-      provider: selectedProvider,
-      model,
-      locale,
-    });
-    const statePatch = {
-      activeRole: resolvedRole.name,
-      currentTaskId: currentTask?.id || null,
-    };
-    if (!options.provider && !options.model) {
-      statePatch.selectedProvider = selectedProvider.name;
-      statePatch.selectedModel = model;
-    }
-    await updateProjectState(project.root, statePatch);
-    if (currentTask) {
-      await setTaskLastSessionId(project.root, currentTask.id, sessionId, locale);
-    }
-
-    const memoryContext = await summarizeCurrentMemory(project.root);
-    const taskContext = currentTask ? await getCurrentTaskContext(project.root, locale) : '';
-    const extensionPrompts = await listEnabledExtensionPromptPacks(project.root);
-    const allowedShellCommands = await listAllowedShellCommands(project.root);
-    console.log(t('project.loaded', { path: project.root }));
-    console.log(t('project.workspacePrepared'));
-    console.log(t('project.readyHint'));
-    console.log(`${t('common.projectRoot')}: ${project.root}`);
-    console.log(t('common.selectedProvider', { provider: selectedProvider.name }));
-    console.log(t('common.activeRole', { role: resolvedRole.name }));
-    console.log(t('common.selectedModel', { model }));
-    console.log(t('common.currentTask', { id: currentTask ? `${currentTask.id} (${currentTask.title})` : t('common.notSet') }));
-    if (conversation.totalMessages > 0) {
-      console.log(t('task.continueLoaded', {
-        messages: conversation.totalMessages,
-        sessions: conversation.sessionCount,
-        limit: conversation.contextWindow?.historyMessages || 20,
-      }));
-    }
-    if (initialTaskInstruction && currentTask) {
-      console.log(t('agent.taskStarted', { id: currentTask.id, title: currentTask.title }));
-    }
-    if (conversation.summaryGenerated) {
-      console.log(t('task.conversationSummaryGenerated'));
-    }
-
-    await runInteractiveAgent({
-      root: project.root,
-      model,
-      provider: selectedProvider,
-      promptLabel: t('agent.promptLabel'),
-      exitHint: t('agent.exitHint'),
-      helpHint: t('agent.helpHint'),
-      initialUserInput: initialTaskInstruction,
-      initialConversationHistory: conversation.recentMessages,
-      composePromptForTask: async (taskInstruction) => composePromptLayers({
-        baseInstructions: BASE_SYSTEM_INSTRUCTIONS,
-        roleProfile: resolvedRole,
-        memorySummary: memoryContext,
-        taskContext,
-        conversationSummary: conversation.summary,
-        extensionPrompts,
-        taskInstruction,
-        allowedShellCommands,
-        projectRoot: project.root,
-      }),
-      policy,
-      t,
-      taskTools: currentTask ? {
-        currentTaskId: currentTask.id,
-        currentRole: resolvedRole.name,
-        currentModel: model,
-        currentSessionId: sessionId,
-        appendNote: async ({ taskId, kind, text, source }) => appendTaskNote(project.root, taskId, {
-          kind,
-          text,
-          source,
-        }, { locale }),
-        onTurnComplete: async ({ userInput, assistantMessage, toolResults }) => {
-          const pieces = [];
-          const taskDir = getTaskFolderPath(project.root, currentTask);
-          if (userInput) {
-            await appendConversationMessage(taskDir, {
-              id: createMessageId(),
-              role: 'user',
-              content: userInput,
-              timestamp: new Date().toISOString(),
-              provider: selectedProvider.name,
-              model,
-              sessionId,
-            });
-            pieces.push(`Запрос: ${userInput}`);
-          }
-          if (assistantMessage) {
-            await appendConversationMessage(taskDir, {
-              id: createMessageId(),
-              role: 'assistant',
-              content: assistantMessage,
-              timestamp: new Date().toISOString(),
-              provider: selectedProvider.name,
-              model,
-              sessionId,
-            });
-            pieces.push(`Ответ: ${assistantMessage}`);
-          }
-          if (toolResults.length) {
-            pieces.push(`Инструменты: ${toolResults.map(({ call }) => call.tool).join(', ')}`);
-          }
-          const noteText = pieces.join('\n');
-          if (noteText.trim()) {
-            await appendTaskNote(project.root, currentTask.id, {
-              kind: toolResults.some(({ call }) => call.tool === 'run_shell') ? 'validation result' : 'finding',
-              text: noteText.slice(0, 1200),
-              source: 'agent',
-            }, { locale });
-          }
-          await setTaskLastSessionId(project.root, currentTask.id, sessionId, locale);
-        },
-      } : {
-        onTurnComplete: async () => {},
-      },
-    });
+    await runProjectStart(projectPath, options, t, locale);
     return;
   }
 

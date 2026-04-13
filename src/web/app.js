@@ -12,11 +12,14 @@ const state = {
   testsHistory: [],
   providers: [],
   roles: [],
+  workspaces: [],
   taskDetail: null,
   selectedTaskId: null,
   selectedTestRunId: null,
+  selectedWorkspaceId: null,
   selectedProviderName: null,
   selectedRoleName: null,
+  currentWorkspace: null,
   error: null,
   statusMessage: '',
 };
@@ -29,6 +32,7 @@ const sectionMeta = {
   memory: { label: 'Память', icon: '◫', subtitle: 'project context' },
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
   roles: { label: 'Роли', icon: '◎', subtitle: 'profiles' },
+  workspaces: { label: 'Воркспейсы', icon: '▣', subtitle: 'global registry' },
 };
 
 function escapeHtml(value) {
@@ -262,6 +266,7 @@ function navMarkup() {
     memory: state.memory?.summaries?.length || 0,
     providers: state.providers.length,
     roles: state.roles.length,
+    workspaces: state.workspaces.length,
   };
   return Object.entries(sectionMeta).map(([name, meta]) => `
     <button class="${sectionClass(name)}" data-action="section" data-section="${name}">
@@ -279,6 +284,7 @@ function headerMarkup() {
   const provider = state.project?.provider || '—';
   const model = state.project?.model || '—';
   const currentTask = state.project?.task?.title || state.project?.currentTaskId || '—';
+  const currentWorkspace = state.currentWorkspace?.alias || state.project?.name || '—';
   return `
     <header class="header">
       <div class="header-title">
@@ -287,6 +293,7 @@ function headerMarkup() {
       </div>
       <div class="header-meta">
         <span class="pill muted">${escapeHtml(provider)} / ${escapeHtml(model)}</span>
+        <span class="pill muted">Воркспейс: ${escapeHtml(currentWorkspace)}</span>
         <span class="pill muted">Задача: ${escapeHtml(currentTask)}</span>
         <span class="badge ${state.live ? 'ok' : 'danger'}">${state.live ? '● SSE' : '○ offline'}</span>
       </div>
@@ -699,6 +706,76 @@ function renderRoles() {
   );
 }
 
+function renderWorkspaces() {
+  const workspace = state.workspaces.find((item) => item.id === state.selectedWorkspaceId)
+    || state.workspaces.find((item) => item.current)
+    || state.workspaces[0]
+    || null;
+  return sectionWrapper(
+    'Воркспейсы',
+    'Глобальный реестр проектов с быстрым переключением и snapshot состояния.',
+    buttonMarkup('Обновить реестр', 'refresh-workspaces', '', 'primary'),
+    `
+      <div class="grid split">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Все проекты</h2></div>
+          <div class="card-body">
+            ${state.workspaces.length ? `
+              <div class="list">
+                ${state.workspaces.map((item) => `
+                  <button class="list-item ${item.id === workspace?.id ? 'selected' : ''}" data-action="select-workspace" data-workspace-id="${escapeHtml(item.id)}">
+                    <div class="list-main">
+                      <div class="list-title">${escapeHtml(item.alias)}${item.current ? ' · текущий' : ''}${item.pinned ? ' · 📌' : ''}</div>
+                      <div class="list-subtitle">${escapeHtml(item.path)}</div>
+                    </div>
+                    <div class="list-meta">
+                      <span class="tiny-badge ${item.available === false ? 'danger' : 'ok'}">${item.available === false ? 'нет доступа' : 'ok'}</span>
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            ` : emptyState('Воркспейсы не найдены', 'Добавьте первый проект через `workbench add` или откройте его из CLI/GUI.')}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">${escapeHtml(workspace?.alias || 'Выберите проект')}</h2>
+            <div class="actions">
+              ${workspace ? `<button class="button primary" data-action="switch-workspace" data-workspace-id="${escapeHtml(workspace.id)}">Сделать активным</button>` : ''}
+            </div>
+          </div>
+          <div class="card-body">
+            ${workspace ? `
+              <div class="grid two-up">
+                ${metricCard('Имя', workspace.name || workspace.alias, workspace.path)}
+                ${metricCard('Статус', workspace.current ? 'текущий' : 'доступен', workspace.available === false ? 'Недоступен' : 'В реестре')}
+              </div>
+              <div class="grid two-up" style="margin-top: 12px;">
+                ${metricCard('Провайдер / модель', `${workspace.snapshot?.provider || '—'} / ${workspace.snapshot?.model || '—'}`)}
+                ${metricCard('Роль / задача', `${workspace.snapshot?.role || '—'} / ${workspace.snapshot?.activeTask || '—'}`)}
+              </div>
+              <div class="card compact" style="margin-top: 12px;">
+                <div class="metric">
+                  <div class="metric-label">Теги</div>
+                  <div class="workspace-tags">${workspace.tags?.length ? workspace.tags.map((tag) => `<span class="tiny-badge">${escapeHtml(tag)}</span>`).join(' ') : '—'}</div>
+                  <div class="metric-sub">Обновлено: ${escapeHtml(formatDate(workspace.lastOpenedAt))}</div>
+                </div>
+              </div>
+              <div class="card compact" style="margin-top: 12px;">
+                <div class="metric">
+                  <div class="metric-label">Snapshot</div>
+                  <div class="metric-value">${escapeHtml(workspace.snapshot?.taskCount != null ? String(workspace.snapshot.taskCount) : '0')} задач</div>
+                  <div class="metric-sub">Последнее обновление: ${escapeHtml(formatDate(workspace.snapshot?.lastRefreshedAt))}</div>
+                </div>
+              </div>
+            ` : emptyState('Выберите воркспейс', 'Здесь появится кэшированное состояние проекта и быстрый переход.')}
+          </div>
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderMain() {
   const view = state.activeSection;
   if (state.error) {
@@ -727,6 +804,8 @@ function renderMain() {
       return renderProviders();
     case 'roles':
       return renderRoles();
+    case 'workspaces':
+      return renderWorkspaces();
     case 'overview':
     default:
       return renderOverview();
@@ -768,7 +847,7 @@ function render() {
 }
 
 async function loadProjectData() {
-  const [project, memory, tasks, patch, patchHistory, testsHistory, providers, roles] = await Promise.all([
+  const [project, memory, tasks, patch, patchHistory, testsHistory, providers, roles, workspaces] = await Promise.all([
     apiGet('/api/v1/project/status'),
     apiGet('/api/v1/project/memory'),
     apiGet('/api/v1/tasks'),
@@ -777,6 +856,7 @@ async function loadProjectData() {
     apiGet('/api/v1/tests/history?limit=20'),
     apiGet('/api/v1/providers'),
     apiGet('/api/v1/roles'),
+    apiGet('/api/v1/workspaces'),
   ]);
 
   state.project = project;
@@ -787,15 +867,20 @@ async function loadProjectData() {
   state.testsHistory = testsHistory.runs || [];
   state.providers = providers.providers || [];
   state.roles = roles.roles || [];
+  state.workspaces = workspaces.workspaces || [];
 
   if (!state.selectedTaskId) {
     state.selectedTaskId = project.currentTaskId || state.tasks[0]?.id || null;
   }
   state.selectedProviderName = project.provider || null;
   state.selectedRoleName = project.role || null;
+  if (!state.selectedWorkspaceId) {
+    state.selectedWorkspaceId = state.workspaces.find((item) => item.current)?.id || state.workspaces[0]?.id || null;
+  }
   if (!state.selectedTestRunId && state.testsHistory.length) {
     state.selectedTestRunId = state.testsHistory[0].runId;
   }
+  state.currentWorkspace = state.workspaces.find((item) => item.current) || null;
 
   if (state.selectedTaskId) {
     await loadTaskDetail(state.selectedTaskId);
@@ -884,6 +969,20 @@ async function handleAction(action, target) {
       state.statusMessage = 'Роль активирована.';
       await reloadView();
       return;
+    case 'select-workspace':
+      state.selectedWorkspaceId = target.dataset.workspaceId;
+      render();
+      return;
+    case 'switch-workspace':
+      await apiPost(`/api/v1/workspaces/${encodeURIComponent(target.dataset.workspaceId)}/switch`);
+      state.statusMessage = 'Воркспейс переключён в реестре.';
+      await reloadView();
+      return;
+    case 'refresh-workspaces':
+      await apiPost('/api/v1/workspaces/refresh');
+      state.statusMessage = 'Реестр воркспейсов обновлён.';
+      await reloadView();
+      return;
     case 'apply-patch':
       await apiPost('/api/v1/patches/apply', {});
       state.statusMessage = 'Патч применён.';
@@ -936,6 +1035,7 @@ function connectEvents() {
   source.addEventListener('test:completed', refresh);
   source.addEventListener('auto:step', refresh);
   source.addEventListener('project:refreshed', refresh);
+  source.addEventListener('workspace:updated', refresh);
 }
 
 app.addEventListener('click', async (event) => {

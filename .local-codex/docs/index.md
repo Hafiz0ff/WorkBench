@@ -5,6 +5,7 @@
 - [Phase 2](./phase-2/tz.md) - Agentic auto mode with task decomposition - completed
 - [Phase 3](./phase-3/tz.md) - CI loop and test runners - completed
 - [Phase 4](./phase-4/tz.md) - Web UI / local dashboard - completed
+- [Phase 5](./phase-5/tz.md) - Workspace / multi-project mode - completed
 
 ## Status
 
@@ -13,4 +14,5 @@
 - Phase 2: completed
 - Phase 3: completed
 - Phase 4: completed
+- Phase 5: completed
 - Documentation is append-only.

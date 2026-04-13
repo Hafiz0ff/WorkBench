@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+- Added a global workspace registry under `~/.workbench/` with aliases, pins, tags, snapshots, and repair flow.
+- Added `workbench add|list|switch|status|remove|rename|pin|tag|search|refresh|config|repair`.
+- Auto-registration now keeps the current project in sync when opening via CLI, GUI, drag & drop, or workspace switching.
+- Added a Workspaces section to the browser dashboard with snapshot metadata and live updates.
+- Updated the release line, README, and release notes for the multi-project workflow.
+
 ## 1.1.0
 - Added an optional local web server and browser dashboard for tasks, memory, patches, tests, providers, and roles.
 - Introduced SSE live updates plus server CLI commands for start, stop, status, and config.

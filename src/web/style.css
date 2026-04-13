@@ -390,6 +390,12 @@ a {
   font-size: 0.82rem;
 }
 
+.workspace-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .list {
   display: grid;
   gap: 8px;

@@ -48,9 +48,14 @@ function waitForLine(child, pattern, timeoutMs = 15000) {
 
 test('server CLI commands start, status, config and stop work together', async () => {
   const root = await createProjectRoot();
+  const workbenchHome = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-cli-server-home-'));
   try {
-    const child = spawn(process.execPath, [CLI, 'server', 'start', '--port', '0', '--no-open'], {
+    const child = spawn(process.execPath, [CLI, 'server', 'start', '--port', '0', '--host', '0.0.0.0', '--no-open'], {
       cwd: root,
+      env: {
+        ...process.env,
+        WORKBENCH_HOME: workbenchHome,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const startedLine = await waitForLine(child, /Сервер запущен: .+/u);
@@ -61,6 +66,10 @@ test('server CLI commands start, status, config and stop work together', async (
 
     const status = spawnSync(process.execPath, [CLI, 'server', 'status'], {
       cwd: root,
+      env: {
+        ...process.env,
+        WORKBENCH_HOME: workbenchHome,
+      },
       encoding: 'utf8',
     });
     assert.equal(status.status, 0);
@@ -68,6 +77,10 @@ test('server CLI commands start, status, config and stop work together', async (
 
     const config = spawnSync(process.execPath, [CLI, 'server', 'config'], {
       cwd: root,
+      env: {
+        ...process.env,
+        WORKBENCH_HOME: workbenchHome,
+      },
       encoding: 'utf8',
     });
     assert.equal(config.status, 0);
@@ -75,6 +88,10 @@ test('server CLI commands start, status, config and stop work together', async (
 
     const stop = spawnSync(process.execPath, [CLI, 'server', 'stop'], {
       cwd: root,
+      env: {
+        ...process.env,
+        WORKBENCH_HOME: workbenchHome,
+      },
       encoding: 'utf8',
     });
     assert.equal(stop.status, 0);
@@ -84,19 +101,26 @@ test('server CLI commands start, status, config and stop work together', async (
     assert.ok(exitInfo.code === 0 || exitInfo.signal === 'SIGTERM' || exitInfo.signal === null);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(workbenchHome, { recursive: true, force: true });
   }
 });
 
 test('server CLI status reports stopped state when no pid exists', async () => {
   const root = await createProjectRoot();
+  const workbenchHome = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-cli-server-home-'));
   try {
     const status = spawnSync(process.execPath, [CLI, 'server', 'status'], {
       cwd: root,
+      env: {
+        ...process.env,
+        WORKBENCH_HOME: workbenchHome,
+      },
       encoding: 'utf8',
     });
     assert.equal(status.status, 0);
     assert.match(status.stdout, /Сервер не запущен|Server is not running/u);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(workbenchHome, { recursive: true, force: true });
   }
 });

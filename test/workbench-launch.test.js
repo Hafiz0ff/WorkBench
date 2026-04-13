@@ -14,8 +14,8 @@ test('routes folder plus task text to start mode with task flag', () => {
   );
 });
 
-test('routes current directory to start mode when no args are provided', () => {
-  assert.deepEqual(resolveWorkbenchInvocation([], '/Users/demo/project'), ['start', '/Users/demo/project']);
+test('routes current directory to workspace switch mode when no args are provided', () => {
+  assert.deepEqual(resolveWorkbenchInvocation([], '/Users/demo/project'), ['workspace', 'switch']);
 });
 
 test('preserves explicit commands', () => {

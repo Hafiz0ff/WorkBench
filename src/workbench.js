@@ -19,6 +19,23 @@ const TOP_LEVEL_COMMANDS = new Set([
   'registry',
   'tree',
   'start',
+  'workspace',
+]);
+const WORKSPACE_COMMANDS = new Set([
+  'add',
+  'list',
+  'switch',
+  'status',
+  'remove',
+  'rename',
+  'pin',
+  'unpin',
+  'tag',
+  'untag',
+  'search',
+  'refresh',
+  'config',
+  'repair',
 ]);
 
 function isOptionLike(value) {
@@ -28,12 +45,15 @@ function isOptionLike(value) {
 export function resolveWorkbenchInvocation(argv, cwd = process.cwd()) {
   const args = Array.isArray(argv) ? argv.slice() : [];
   if (!args.length) {
-    return ['start', cwd];
+    return ['workspace', 'switch'];
   }
 
   const [first, ...rest] = args;
   if (!first || first.startsWith('-') || TOP_LEVEL_COMMANDS.has(first)) {
     return args;
+  }
+  if (WORKSPACE_COMMANDS.has(first)) {
+    return ['workspace', first, ...rest];
   }
   if (rest.length > 0 && rest.every((value) => !isOptionLike(value))) {
     return ['start', first, '--task', rest.join(' ')];

@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-1.1.0-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-1.2.0-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -13,6 +13,7 @@
 - [Screenshots / Скриншоты](#screenshots)
 - [Quick Start / Быстрый старт](#quick-start)
 - [Drag & Drop / Перетаскивание папки](#drag-drop)
+- [Workspace / Воркспейс](#workspace)
 - [Core Commands / Основные команды](#core-commands)
 - [`.local-codex/`](#local-codex)
 - [GUI](#gui)
@@ -172,6 +173,26 @@ workbench
 ```
 
 После открытия проекта первый экран показывает composer задачи, чтобы можно было сразу начать работу.
+
+<a id="workspace"></a>
+## Workspace / Воркспейс
+
+Workbench keeps a global workspace registry in `~/.workbench/`, so you can switch between projects without retyping full paths every time.
+
+Workbench хранит глобальный реестр проектов в `~/.workbench/`, чтобы можно было быстро переключаться между проектами без повторного ввода пути.
+
+```bash
+workbench add ~/projects/tasuj --alias tasuj
+workbench list
+workbench switch tasuj
+workbench status tasuj
+```
+
+```bash
+app workspace list
+app workspace switch tasuj
+app workspace refresh
+```
 
 ### Run / Запуск
 
@@ -521,6 +542,7 @@ Release docs:
 - `docs/release-notes-template.md`
 - `docs/release-notes-1.0.0.md`
 - `docs/release-notes-1.1.0.md`
+- `docs/release-notes-1.2.0.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -529,4 +551,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `1.1.0`.
+- The current release line is `1.2.0`.

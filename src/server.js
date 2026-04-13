@@ -50,6 +50,12 @@ import {
   useProvider,
 } from './providers/index.js';
 import {
+  addWorkspace,
+  listWorkspaces,
+  refreshSnapshot as refreshWorkspaceSnapshot,
+  switchWorkspace as switchProjectWorkspace,
+} from './workspace.js';
+import {
   listRoleProfiles,
   setActiveRole,
 } from './roles.js';
@@ -466,6 +472,33 @@ function serializeProviderSummary(entry) {
     baseUrl: entry.baseUrl || null,
     apiKeySet: Boolean(entry.apiKeySet),
     health: entry.health || null,
+  };
+}
+
+function serializeWorkspace(workspace) {
+  if (!workspace) {
+    return null;
+  }
+  return {
+    id: workspace.id,
+    alias: workspace.alias,
+    name: workspace.name,
+    path: workspace.path,
+    addedAt: workspace.addedAt || null,
+    lastOpenedAt: workspace.lastOpenedAt || null,
+    pinned: Boolean(workspace.pinned),
+    tags: Array.isArray(workspace.tags) ? [...workspace.tags] : [],
+    available: workspace.available !== false,
+    current: Boolean(workspace.current),
+    snapshot: {
+      provider: workspace.snapshot?.provider || null,
+      model: workspace.snapshot?.model || null,
+      role: workspace.snapshot?.role || null,
+      activeTask: workspace.snapshot?.activeTask || null,
+      taskCount: Number.isFinite(workspace.snapshot?.taskCount) ? workspace.snapshot.taskCount : 0,
+      taskCounts: workspace.snapshot?.taskCounts || {},
+      lastRefreshedAt: workspace.snapshot?.lastRefreshedAt || null,
+    },
   };
 }
 
@@ -905,6 +938,38 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
     return;
   }
 
+  if (pathname === '/api/v1/workspaces' && req.method === 'GET') {
+    const workspaces = await listWorkspaces();
+    jsonResponse(res, 200, {
+      workspaces: workspaces.map(serializeWorkspace),
+    });
+    return;
+  }
+
+  if (pathname === '/api/v1/workspaces/refresh' && req.method === 'POST') {
+    const workspaces = await listWorkspaces();
+    const refreshed = [];
+    for (const workspace of workspaces) {
+      refreshed.push(await refreshWorkspaceSnapshot(workspace.alias));
+    }
+    runtime.send('workspace:updated', { count: refreshed.length });
+    jsonResponse(res, 200, { ok: true, count: refreshed.length, workspaces: refreshed.map(serializeWorkspace) });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/workspaces/') && pathname.endsWith('/switch') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const workspaceId = decodeURIComponent(segments[3] || '');
+    if (!workspaceId) {
+      jsonResponse(res, 404, { ok: false, error: 'missing_workspace_id' });
+      return;
+    }
+    const workspace = await switchProjectWorkspace(workspaceId);
+    runtime.send('workspace:updated', { workspaceId: workspace.id, alias: workspace.alias });
+    jsonResponse(res, 200, { ok: true, workspace: serializeWorkspace(workspace) });
+    return;
+  }
+
   if (pathname === '/api/v1/registry' && req.method === 'GET') {
     const entries = await listRegistryEntries(projectRoot);
     jsonResponse(res, 200, {
@@ -1066,6 +1131,7 @@ export async function startServer(projectRoot, options = {}) {
   await prepareProjectWorkspace(root, { scaffoldRoles: false });
   await ensureTaskWorkspace(root);
   await ensureProjectPolicy(root);
+  await addWorkspace(root).catch(() => {});
 
   const policy = await readProjectPolicy(root);
   const config = normalizeServerConfig(policy);
