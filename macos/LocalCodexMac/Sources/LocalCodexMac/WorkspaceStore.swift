@@ -57,6 +57,7 @@ final class WorkspaceStore: ObservableObject {
     @Published var selectedRoleName: String?
     @Published var selectedExtensionId: String?
     @Published var selectedRegistryId: String?
+    @Published var roleActionMessage: String?
 
     let engineBridge: EngineBridge
     let commandRunner: any CLICommandRunning
@@ -386,7 +387,14 @@ final class WorkspaceStore: ObservableObject {
     }
 
     func scaffoldRoles() async {
+        roleActionMessage = nil
         await runCLI(["roles", "scaffold"])
+        await refreshSnapshot()
+        if roleCount > 0 {
+            roleActionMessage = localeStore.text("gui.roles.scaffoldSuccess", roleCount)
+        } else {
+            roleActionMessage = localeStore.text("gui.roles.scaffoldWarning")
+        }
         selectedSection = .roles
     }
 

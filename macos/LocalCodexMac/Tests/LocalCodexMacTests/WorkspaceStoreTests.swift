@@ -112,6 +112,7 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedSection, .roles)
         XCTAssertEqual(store.snapshot?.roles.count, 1)
         XCTAssertEqual(store.snapshot?.roles.first?.name, "senior-engineer")
+        XCTAssertEqual(store.roleActionMessage, store.localeStore.text("gui.roles.scaffoldSuccess", 1))
     }
 
     func testCreateTaskRefreshesSnapshotAndKeepsTaskStateVisible() async throws {

@@ -155,6 +155,18 @@ struct RolesView: View {
                         .frame(width: 220)
                 }
 
+                if let message = store.roleActionMessage {
+                    HStack(spacing: 8) {
+                        Image(systemName: store.roleCount > 0 ? "checkmark.seal" : "exclamationmark.triangle")
+                        Text(message)
+                    }
+                    .font(.callout)
+                    .foregroundStyle(store.roleCount > 0 ? .green : .orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
                 let roles = store.snapshot?.roles ?? []
                 let visibleRoles = filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? roles

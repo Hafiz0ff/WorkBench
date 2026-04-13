@@ -56,11 +56,13 @@
 "gui.tasks.currentBadge" = "текущая";
 "gui.roles.title" = "Роли";
 "gui.roles.scaffold" = "Подготовить встроенные";
-"gui.roles.filterPlaceholder" = "Активная роль";
+"gui.roles.filterPlaceholder" = "Фильтр ролей";
 "gui.roles.use" = "Активировать";
 "gui.roles.inspect" = "Показать";
 "gui.roles.empty" = "Роли пока не созданы.";
 "gui.roles.emptyHint" = "Сначала подготовьте встроенные роли или создайте свою роль вручную.";
+"gui.roles.scaffoldSuccess" = "Встроенные роли подготовлены: %lld";
+"gui.roles.scaffoldWarning" = "Встроенные роли не появились. Проверьте выбранный проект и права записи.";
 "gui.extensions.title" = "Расширения";
 "gui.extensions.total" = "Всего";
 "gui.extensions.enabled" = "Включено";

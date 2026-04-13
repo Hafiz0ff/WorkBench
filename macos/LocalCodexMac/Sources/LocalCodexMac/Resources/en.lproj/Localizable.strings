@@ -56,11 +56,13 @@
 "gui.tasks.currentBadge" = "current";
 "gui.roles.title" = "Roles";
 "gui.roles.scaffold" = "Scaffold built-ins";
-"gui.roles.filterPlaceholder" = "Active role";
+"gui.roles.filterPlaceholder" = "Role filter";
 "gui.roles.use" = "Activate";
 "gui.roles.inspect" = "Show";
 "gui.roles.empty" = "No roles yet.";
 "gui.roles.emptyHint" = "Scaffold the built-in roles first or create a custom role manually.";
+"gui.roles.scaffoldSuccess" = "Built-in roles prepared: %lld";
+"gui.roles.scaffoldWarning" = "Built-in roles did not appear. Check the selected project and write permissions.";
 "gui.extensions.title" = "Extensions";
 "gui.extensions.total" = "Total";
 "gui.extensions.enabled" = "Enabled";
