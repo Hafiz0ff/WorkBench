@@ -910,55 +910,26 @@ struct SessionView: View {
                     }
                 }
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
-                        Button {
-                            Task { await store.inspectPrompt() }
-                        } label: {
-                            Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
-                        }
-                        Button {
-                            Task { await store.inspectDiff() }
-                        } label: {
-                            Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
-                        }
-                        Button {
-                            Task { await store.applyPatch() }
-                        } label: {
-                            Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
-                        }
-                        Button {
-                            Task { await store.rejectPatch() }
-                        } label: {
-                            Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
-                        }
-                        Spacer()
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 12)], spacing: 12) {
+                    Button {
+                        Task { await store.inspectPrompt() }
+                    } label: {
+                        Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            Button {
-                                Task { await store.inspectPrompt() }
-                            } label: {
-                                Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
-                            }
-                            Button {
-                                Task { await store.inspectDiff() }
-                            } label: {
-                                Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
-                            }
-                        }
-                        HStack(spacing: 12) {
-                            Button {
-                                Task { await store.applyPatch() }
-                            } label: {
-                                Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
-                            }
-                            Button {
-                                Task { await store.rejectPatch() }
-                            } label: {
-                                Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
-                            }
-                        }
+                    Button {
+                        Task { await store.inspectDiff() }
+                    } label: {
+                        Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
+                    }
+                    Button {
+                        Task { await store.applyPatch() }
+                    } label: {
+                        Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
+                    }
+                    Button {
+                        Task { await store.rejectPatch() }
+                    } label: {
+                        Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
                     }
                 }
 
@@ -982,7 +953,7 @@ struct SessionView: View {
                                 .textSelection(.enabled)
                                 .padding(8)
                         }
-                        .frame(minHeight: 380)
+                        .frame(minHeight: 260)
                         .background(.quaternary.opacity(0.2))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
