@@ -18,5 +18,6 @@ npm install
 npm link
 
 echo
-echo "Installed the app command globally."
-echo "Try: app start /path/to/project"
+echo "Installed the app and workbench commands globally."
+echo "Try: workbench /path/to/project"
+echo "Optional folder-first helper: ./scripts/install_cli_helper.sh -> workbench ~/path/to/project"

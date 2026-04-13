@@ -71,12 +71,12 @@ struct ContentView: View {
             }
         }
         .task {
-            if store.snapshot == nil, store.selectedProjectRoot != nil {
+            if store.snapshot == nil, store.selectedProjectRoot != nil, !store.isProjectBootstrapping {
                 await store.refreshSnapshot()
             }
         }
         .task(id: store.selectedSection) {
-            guard store.selectedProjectRoot != nil else { return }
+            guard store.selectedProjectRoot != nil, !store.isProjectBootstrapping else { return }
             await store.refreshSnapshot()
         }
     }

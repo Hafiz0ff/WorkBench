@@ -23,11 +23,10 @@ mkdir -p "$(dirname "$TARGET")"
 cat > "$TARGET" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-exec node "$ROOT/src/cli.js" "\$@"
+exec node "$ROOT/src/workbench.js" "\$@"
 EOF
 chmod +x "$TARGET"
 
 printf 'Установлен CLI helper: %s\n' "$TARGET"
 printf 'Команда: %s\n' "$HELPER_NAME"
 printf 'Удаление: rm -f %s\n' "$TARGET"
-

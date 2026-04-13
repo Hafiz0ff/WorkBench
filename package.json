@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Workbench CLI for macOS with Ollama integration.",
   "bin": {
-    "app": "./src/cli.js"
+    "app": "./src/cli.js",
+    "workbench": "./src/workbench.js"
   },
   "scripts": {
     "start": "node ./src/cli.js",

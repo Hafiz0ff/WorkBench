@@ -1,9 +1,29 @@
 # Workbench
 
+## Contents
+
+- [English](#english)
+- [Русский](#russian)
+- [Highlights / Возможности](#highlights)
+- [Quick Start / Быстрый старт](#quick-start)
+- [Drag & Drop / Перетаскивание папки](#drag-drop)
+- [Core Commands / Основные команды](#core-commands)
+- [`.local-codex/`](#local-codex)
+- [GUI](#gui)
+- [Release](#release)
+- [Notes / Примечания](#notes)
+
+<a id="english"></a>
+## English
+
 Workbench is a local coding assistant for macOS powered by Ollama. It combines a terminal-first CLI, a native SwiftUI app, project memory, task tracking, safe patch application, and an inspectable extension system.
+
+<a id="russian"></a>
+## Русский
 
 Workbench - локальный coding assistant для macOS на базе Ollama. Он сочетает CLI, native SwiftUI app, память проекта, задачи, безопасные патчи и inspectable extension system.
 
+<a id="highlights"></a>
 ## Highlights / Возможности
 
 - Local Ollama integration over `http://localhost:11434`
@@ -22,6 +42,7 @@ Workbench - локальный coding assistant для macOS на базе Ollam
 - Manifest-driven GitHub extensions и curated registry layer
 - Полностью inspectable состояние на диске в `.local-codex/`
 
+<a id="quick-start"></a>
 ## Quick Start / Быстрый старт
 
 ### Requirements / Требования
@@ -40,9 +61,9 @@ Workbench - локальный coding assistant для macOS на базе Ollam
 ./scripts/install-macos.sh
 ```
 
-This installs the CLI package locally and exposes `app`.
+This installs the CLI package locally and exposes `app` and `workbench`.
 
-Это устанавливает CLI-пакет локально и делает доступной команду `app`.
+Это устанавливает CLI-пакет локально и делает доступными команды `app` и `workbench`.
 
 Optional CLI helper:
 
@@ -54,6 +75,20 @@ Optional CLI helper:
 
 ```bash
 ./scripts/install_cli_helper.sh
+```
+
+This installs `workbench`, a folder-first launcher:
+
+```bash
+workbench ~/path/to/project
+workbench
+```
+
+Это устанавливает `workbench` - запускатель, который первым делом открывает папку проекта:
+
+```bash
+workbench ~/path/to/project
+workbench
 ```
 
 ### Run / Запуск
@@ -92,6 +127,27 @@ app start /path/to/project --model qwen2.5-coder:14b
 
 ```bash
 app start /path/to/project --role software-architect
+```
+
+<a id="drag-drop"></a>
+### Drag & Drop / Перетаскивание папки
+
+- Drag a folder onto `Workbench.app` or the mounted DMG to open it as the active project.
+- The app auto-initializes `.local-codex/` and prepares built-in roles on first open.
+
+- Перетащите папку на `Workbench.app` или смонтированный DMG, чтобы открыть её как активный проект.
+- Приложение автоматически создаёт `.local-codex/` и готовит встроенные роли при первом открытии.
+
+The same folder-first flow is available in Terminal:
+
+```bash
+workbench ~/path/to/project
+```
+
+Такой же сценарий доступен в Терминале:
+
+```bash
+workbench ~/path/to/project
 ```
 
 ### Native macOS App / Native macOS app
@@ -138,6 +194,7 @@ export LOCAL_CODEX_ENGINE_ROOT="/Volumes/Inside 1/ЛОКАЛКА"
 export LOCAL_CODEX_ENGINE_ROOT="/Volumes/Inside 1/ЛОКАЛКА"
 ```
 
+<a id="core-commands"></a>
 ## Core Commands / Основные команды
 
 ### Project memory / Память проекта
@@ -165,6 +222,20 @@ app roles current
 Built-in role profiles now include 20 ready-to-use roles: `frontend-engineer`, `backend-engineer`, `test-engineer`, `performance-optimizer`, `refactoring-strategist`, `release-engineer`, `api-designer`, `migration-engineer`, `qa-analyst`, `bug-hunter`, `devops-engineer`, `security-reviewer`, `documentation-engineer`, `integration-engineer`, plus the core roles for architecture, review, debugging, design, and product thinking.
 
 Встроенные профили ролей теперь включают 20 готовых ролей: `frontend-engineer`, `backend-engineer`, `test-engineer`, `performance-optimizer`, `refactoring-strategist`, `release-engineer`, `api-designer`, `migration-engineer`, `qa-analyst`, `bug-hunter`, `devops-engineer`, `security-reviewer`, `documentation-engineer`, `integration-engineer`, а также базовые роли для архитектуры, ревью, отладки, дизайна и продуктового мышления.
+
+For convenience, the built-in set is grouped like this:
+
+- Core thinking: `senior-engineer`, `software-architect`, `code-reviewer`, `debugging-expert`, `designer`, `product-manager`
+- Delivery and implementation: `frontend-engineer`, `backend-engineer`, `devops-engineer`, `integration-engineer`, `release-engineer`
+- Quality and stability: `test-engineer`, `performance-optimizer`, `refactoring-strategist`, `qa-analyst`, `bug-hunter`, `security-reviewer`
+- Product and communication: `api-designer`, `migration-engineer`, `documentation-engineer`
+
+Для удобства встроенный набор сгруппирован так:
+
+- Базовое мышление: `senior-engineer`, `software-architect`, `code-reviewer`, `debugging-expert`, `designer`, `product-manager`
+- Разработка и поставка: `frontend-engineer`, `backend-engineer`, `devops-engineer`, `integration-engineer`, `release-engineer`
+- Качество и стабильность: `test-engineer`, `performance-optimizer`, `refactoring-strategist`, `qa-analyst`, `bug-hunter`, `security-reviewer`
+- Продукт и коммуникация: `api-designer`, `migration-engineer`, `documentation-engineer`
 
 ### Tasks / Задачи
 
@@ -207,6 +278,7 @@ app registry list
 app registry install sample.reviewed
 ```
 
+<a id="local-codex"></a>
 ## `.local-codex/`
 
 Project memory lives inside `.local-codex/` in the selected repository. It stays fully inspectable and editable on disk.
@@ -241,6 +313,7 @@ Project memory lives inside `.local-codex/` in the selected repository. It stays
   - `<!-- MANUAL NOTES START -->`
   - `<!-- MANUAL NOTES END -->`
 
+<a id="gui"></a>
 ## GUI
 
 The macOS GUI lives in `macos/LocalCodexMac/` and wraps the same filesystem-based engine used by the CLI.
@@ -282,6 +355,7 @@ Supported GUI flows:
 - run the session console on top of the CLI engine
 - change language in Settings
 
+<a id="release"></a>
 ## Release
 
 Release preparation scripts live in `scripts/`:
@@ -307,6 +381,7 @@ Release docs:
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
+<a id="notes"></a>
 ## Notes / Примечания
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.

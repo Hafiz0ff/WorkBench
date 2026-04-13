@@ -73,6 +73,7 @@ import {
   removeRegistrySource,
   ensureRegistryWorkspace,
 } from './registry.js';
+import { prepareProjectWorkspace } from './workspace-bootstrap.js';
 import { BASE_SYSTEM_INSTRUCTIONS, composePromptLayers, formatPromptInspection } from './prompt-composer.js';
 import {
   applyPatchArtifact,
@@ -332,11 +333,7 @@ async function handleProjectCommand(subcommand, t, locale) {
   const projectRoot = process.cwd();
 
   if (subcommand === 'init') {
-    const { memoryRoot } = await ensureProjectMemory(projectRoot);
-    await ensureProjectPolicy(projectRoot);
-    await ensureTaskWorkspace(projectRoot);
-    await ensureExtensionsWorkspace(projectRoot);
-    await ensureRegistryWorkspace(projectRoot);
+    const { memoryRoot } = await prepareProjectWorkspace(projectRoot);
     console.log(t('project.initialized', { path: memoryRoot }));
     return;
   }
@@ -1171,11 +1168,7 @@ async function main() {
       throw new Error(t('errors.projectPathMissing'));
     }
     const project = await openProject(projectPath);
-    await scaffoldBuiltInRoles(project.root);
-    await ensureProjectMemory(project.root);
-    await ensureTaskWorkspace(project.root);
-    await ensureProjectPolicy(project.root);
-    await ensureRegistryWorkspace(project.root);
+    await prepareProjectWorkspace(project.root, { scaffoldRoles: true });
 
     const state = await readProjectState(project.root);
     const policy = await readProjectPolicy(project.root);

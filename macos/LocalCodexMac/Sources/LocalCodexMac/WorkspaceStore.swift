@@ -58,6 +58,7 @@ final class WorkspaceStore: ObservableObject {
     @Published var selectedExtensionId: String?
     @Published var selectedRegistryId: String?
     @Published var roleActionMessage: String?
+    @Published var isProjectBootstrapping = false
 
     let engineBridge: EngineBridge
     let commandRunner: any CLICommandRunning
@@ -87,6 +88,14 @@ final class WorkspaceStore: ObservableObject {
         localeStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .workbenchOpenProject)
+            .compactMap { $0.object as? URL }
+            .sink { [weak self] url in
+                Task { @MainActor in
+                    await self?.openProjectRoot(url)
+                }
             }
             .store(in: &cancellables)
     }
@@ -286,14 +295,6 @@ final class WorkspaceStore: ObservableObject {
         return root.appendingPathComponent("RELEASE_NOTES.md").path
     }
 
-    func setProjectRoot(_ url: URL) {
-        selectedProjectRoot = url
-        UserDefaults.standard.set(url.path, forKey: "localcodex.projectRoot")
-        selectedTaskId = snapshot?.state?.currentTaskId
-        selectedRoleName = snapshot?.state?.activeRole
-        Task { await refreshSnapshot() }
-    }
-
     func chooseProjectFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -303,8 +304,28 @@ final class WorkspaceStore: ObservableObject {
         panel.prompt = localeStore.text("gui.project.chooseButton")
         panel.message = localeStore.text("gui.project.chooseMessage")
         if panel.runModal() == .OK, let url = panel.url {
-            setProjectRoot(url)
+            Task { await openProjectRoot(url) }
         }
+    }
+
+    func openProjectRoot(_ url: URL) async {
+        let normalizedURL = url.standardizedFileURL
+        selectedProjectRoot = normalizedURL
+        UserDefaults.standard.set(normalizedURL.path, forKey: "localcodex.projectRoot")
+        selectedTaskId = snapshot?.state?.currentTaskId
+        selectedRoleName = snapshot?.state?.activeRole
+        selectedSection = .project
+        isProjectBootstrapping = true
+        defer { isProjectBootstrapping = false }
+
+        await runCLI(["project", "init"])
+        await runCLI(["roles", "scaffold"])
+        if roleCount > 0 {
+            roleActionMessage = localeStore.text("gui.roles.scaffoldSuccess", roleCount)
+        } else {
+            roleActionMessage = localeStore.text("gui.roles.scaffoldWarning")
+        }
+        selectedSection = .project
     }
 
     func refreshSnapshot() async {

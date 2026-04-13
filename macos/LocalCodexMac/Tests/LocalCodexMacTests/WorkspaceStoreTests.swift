@@ -115,6 +115,33 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.roleActionMessage, store.localeStore.text("gui.roles.scaffoldSuccess", 1))
     }
 
+    func testOpenProjectRootBootstrapsWorkspaceAndScaffoldsRoles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runner = MockCLICommandRunner(projectRoot: root) { arguments, _, _ in
+            if arguments == ["project", "init"] {
+                try writeProjectState(root)
+                try writeEmptyTaskIndex(root)
+            } else if arguments == ["roles", "scaffold"] {
+                try writeRoleFile(root, name: "senior-engineer", description: "Practical engineering role.")
+            }
+        }
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner
+        )
+
+        await store.openProjectRoot(root)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls, [["project", "init"], ["roles", "scaffold"]])
+        XCTAssertEqual(store.selectedProjectRoot, root.standardizedFileURL)
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.snapshot?.roles.count, 1)
+        XCTAssertEqual(store.snapshot?.roles.first?.name, "senior-engineer")
+        XCTAssertEqual(store.roleActionMessage, store.localeStore.text("gui.roles.scaffoldSuccess", 1))
+        XCTAssertFalse(store.isProjectBootstrapping)
+    }
+
     func testCreateTaskRefreshesSnapshotAndKeepsTaskStateVisible() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try writeProjectState(root)
