@@ -1,0 +1,16 @@
+# Phase Index
+
+- [Phase 0](./phase-0/tz.md) - Multi-LLM provider layer - completed
+- [Phase 1](./phase-1/tz.md) - Conversation history per task - completed
+- [Phase 2](./phase-2/tz.md) - Agentic auto mode with task decomposition - completed
+- [Phase 3](./phase-3/tz.md) - CI loop and test runners - completed
+- [Phase 4](./phase-4/tz.md) - Web UI / local dashboard - completed
+
+## Status
+
+- Phase 0: completed
+- Phase 1: completed
+- Phase 2: completed
+- Phase 3: completed
+- Phase 4: completed
+- Documentation is append-only.

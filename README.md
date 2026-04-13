@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-1.0.1-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-1.1.0-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -24,12 +24,16 @@
 
 Workbench is a local coding assistant for macOS powered by Ollama. It combines a terminal-first CLI, a native SwiftUI app, project memory, task tracking, safe patch application, and an inspectable extension system.
 
+Workbench also includes an optional local web dashboard, available from the same project workspace, for quick browser-based inspection of tasks, patches, tests, memory, providers, and roles.
+
 Workbench is now moving toward a provider layer that can switch between Ollama, OpenAI, Anthropic, and Gemini through the same CLI and workspace state.
 
 <a id="russian"></a>
 ## Русский
 
 Workbench - локальный coding assistant для macOS на базе Ollama. Он сочетает CLI, native SwiftUI app, память проекта, задачи, безопасные патчи и inspectable extension system.
+
+Workbench также включает опциональный локальный web dashboard, который открывается из того же project workspace и позволяет быстро смотреть задачи, патчи, тесты, память, провайдеры и роли в браузере.
 
 Workbench также получает provider layer, который позволяет переключаться между Ollama, OpenAI, Anthropic и Gemini через один и тот же интерфейс.
 
@@ -398,6 +402,18 @@ app registry list
 app registry install sample.reviewed
 ```
 
+### Web dashboard / Локальный дашборд
+
+```bash
+app server start --open
+app server status
+app server stop
+```
+
+The optional local dashboard mirrors the same project state in a browser and stays offline-first.
+
+Опциональный локальный дашборд показывает тот же проектный state в браузере и работает offline-first.
+
 ### Provider workspace / Рабочая область провайдеров
 
 Provider settings live in `.local-codex/providers.json` and are created automatically when you initialize or open a project. The file stays local and is ignored by Git.
@@ -504,7 +520,7 @@ Release docs:
 - `docs/manual-qa-template.md`
 - `docs/release-notes-template.md`
 - `docs/release-notes-1.0.0.md`
-- `docs/release-notes-1.0.1.md`
+- `docs/release-notes-1.1.0.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -513,4 +529,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `1.0.1`.
+- The current release line is `1.1.0`.

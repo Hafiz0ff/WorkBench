@@ -5,6 +5,7 @@ node_modules/
 dist/
 .local-codex/
 .local-codex/providers.json
+.local-codex/server.pid
 *.app
 *.dmg
 *.ips

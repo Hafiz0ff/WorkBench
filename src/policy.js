@@ -37,6 +37,17 @@ const DEFAULT_POLICY = {
     },
     runners: [],
   },
+  server: {
+    port: 3000,
+    host: '127.0.0.1',
+    auth: {
+      enabled: false,
+      username: 'admin',
+      passwordHash: '',
+    },
+    openOnStart: true,
+    corsOrigins: [],
+  },
   allowedReadGlobs: ['**/*'],
   allowedWriteGlobs: [
     'src/**',
@@ -234,6 +245,29 @@ function normalizePolicy(policy = {}) {
       command: typeof policy.testRunner?.command === 'string' ? policy.testRunner.command.trim() : DEFAULT_POLICY.testRunner.command,
       cwd: typeof policy.testRunner?.cwd === 'string' && policy.testRunner.cwd.trim() ? policy.testRunner.cwd.trim() : DEFAULT_POLICY.testRunner.cwd,
       env: policy.testRunner?.env && typeof policy.testRunner.env === 'object' ? { ...policy.testRunner.env } : DEFAULT_POLICY.testRunner.env,
+    },
+    server: {
+      ...DEFAULT_POLICY.server,
+      ...(policy.server || {}),
+      auth: {
+        ...DEFAULT_POLICY.server.auth,
+        ...(policy.server?.auth || {}),
+        enabled: policy.server?.auth?.enabled === true,
+        username: typeof policy.server?.auth?.username === 'string' && policy.server.auth.username.trim()
+          ? policy.server.auth.username.trim()
+          : DEFAULT_POLICY.server.auth.username,
+        passwordHash: typeof policy.server?.auth?.passwordHash === 'string'
+          ? policy.server.auth.passwordHash.trim()
+          : DEFAULT_POLICY.server.auth.passwordHash,
+      },
+      port: Number.isFinite(Number(policy.server?.port)) && Number(policy.server?.port) > 0
+        ? Math.floor(Number(policy.server.port))
+        : DEFAULT_POLICY.server.port,
+      host: typeof policy.server?.host === 'string' && policy.server.host.trim()
+        ? policy.server.host.trim()
+        : DEFAULT_POLICY.server.host,
+      openOnStart: policy.server?.openOnStart !== false,
+      corsOrigins: normalizeStringList(policy.server?.corsOrigins || DEFAULT_POLICY.server.corsOrigins),
     },
     allowedReadGlobs: normalizeStringList(allowedReadGlobs),
     allowedWriteGlobs: normalizeStringList(allowedWriteGlobs),
@@ -556,6 +590,11 @@ export function getPolicySummary(policyInput) {
       autoRun: { ...(policy.testRunner?.autoRun || {}) },
       onFail: { ...(policy.testRunner?.onFail || {}) },
       history: { ...(policy.testRunner?.history || {}) },
+    },
+    server: {
+      ...policy.server,
+      auth: { ...(policy.server?.auth || {}) },
+      corsOrigins: Array.isArray(policy.server?.corsOrigins) ? [...policy.server.corsOrigins] : [],
     },
     allowedReadGlobs: [...policy.allowedReadGlobs],
     allowedWriteGlobs: [...policy.allowedWriteGlobs],

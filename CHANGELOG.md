@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+- Added an optional local web server and browser dashboard for tasks, memory, patches, tests, providers, and roles.
+- Introduced SSE live updates plus server CLI commands for start, stop, status, and config.
+- The dashboard works offline with vanilla HTML, CSS, and JS only.
+- Added registry API surface and browser-friendly project views on top of the existing file-based workspace.
+
 ## 1.0.1
 - Phase 3 landed: centralized test runner, CI loop, test history, and auto-with-tests patch handling.
 - Added `app test` commands for running, inspecting, and detecting project test runners.

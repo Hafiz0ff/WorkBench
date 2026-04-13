@@ -126,6 +126,12 @@ import {
   getPendingPatch,
   rejectPatchArtifact,
 } from './patches.js';
+import {
+  getServerConfig,
+  getServerStatus,
+  startServer,
+  stopServer,
+} from './server.js';
 
 function parseOptions(argv) {
   const options = { _: [] };
@@ -199,6 +205,14 @@ function parseOptions(argv) {
       options.command = argv[++i];
       continue;
     }
+    if (value === '--port') {
+      options.port = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--host') {
+      options.host = argv[++i];
+      continue;
+    }
     if (value === '--cwd') {
       options.cwd = argv[++i];
       continue;
@@ -226,6 +240,14 @@ function parseOptions(argv) {
     }
     if (value === '--dry-run') {
       options.dryRun = true;
+      continue;
+    }
+    if (value === '--open') {
+      options.open = true;
+      continue;
+    }
+    if (value === '--no-open') {
+      options.open = false;
       continue;
     }
     if (value === '--no-tests') {
@@ -805,6 +827,69 @@ async function handleProviderCommand(subcommand, options, t, locale) {
         : t('provider.healthFailed', { reason: entry.health.message || t('common.notSet') });
       console.log(`${entry.name}: ${label}`);
     }
+    return;
+  }
+
+  printUsage(t);
+}
+
+function formatServerConfigOutput(config, t) {
+  const lines = [
+    `${t('server.configTitle')}`,
+    `${t('server.port')}: ${config.port}`,
+    `${t('server.host')}: ${config.host}`,
+    `${t('server.openOnStart')}: ${config.openOnStart ? t('common.yes') : t('common.no')}`,
+    `${t('server.authEnabled')}: ${config.auth?.enabled ? t('common.yes') : t('common.no')}`,
+    `${t('server.authUsername')}: ${config.auth?.username || t('common.notSet')}`,
+    `${t('server.corsOrigins')}: ${(config.corsOrigins || []).join(', ') || t('common.notSet')}`,
+  ];
+  return lines.join('\n');
+}
+
+async function handleServerCommand(subcommand, options, t, locale) {
+  const projectRoot = process.cwd();
+  await ensureProjectPolicy(projectRoot);
+
+  if (subcommand === 'start') {
+    const result = await startServer(projectRoot, {
+      port: options.port,
+      host: options.host,
+      open: options.open,
+    });
+    console.log(t('server.started', { url: result.url }));
+    console.log(`${t('server.host')}: ${result.config.host}`);
+    console.log(`${t('server.port')}: ${result.config.port}`);
+    if (result.opened) {
+      console.log(t('server.browserOpening'));
+    }
+    return;
+  }
+
+  if (subcommand === 'stop') {
+    const result = await stopServer(projectRoot);
+    if (result.stopped) {
+      console.log(t('server.stopped'));
+      return;
+    }
+    console.log(t('server.notRunning'));
+    return;
+  }
+
+  if (subcommand === 'status') {
+    const status = await getServerStatus(projectRoot);
+    if (!status.running) {
+      console.log(t('server.notRunning'));
+      return;
+    }
+    console.log(t('server.statusTitle'));
+    console.log(`${t('server.pid')}: ${status.pid}`);
+    console.log(`${t('server.url')}: ${status.url}`);
+    return;
+  }
+
+  if (subcommand === 'config') {
+    const config = await getServerConfig(projectRoot);
+    console.log(formatServerConfigOutput(config, t));
     return;
   }
 
@@ -2011,6 +2096,11 @@ async function main() {
 
   if (command === 'test') {
     await handleTestCommand(subcommand, options, t, locale);
+    return;
+  }
+
+  if (command === 'server') {
+    await handleServerCommand(subcommand, options, t, locale);
     return;
   }
 
