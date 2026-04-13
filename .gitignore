@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+DerivedData/
+node_modules/
+dist/
+.local-codex/
+*.app
+*.dmg
+*.ips
+*.xcuserstate

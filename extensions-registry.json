@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "Workbench Curated Registry",
+  "description": "Sample curated registry descriptor. Add reviewed entries here or point the app to a private catalog file.",
+  "publisher": "Workbench",
+  "reviewStatus": "reviewed",
+  "verifiedSource": true,
+  "trustLevel": "reviewed",
+  "supportedAppVersions": [">=0.1.0"],
+  "entries": []
+}

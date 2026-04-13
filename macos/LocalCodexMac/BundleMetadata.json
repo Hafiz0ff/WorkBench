@@ -1,0 +1,8 @@
+{
+  "productName": "Workbench",
+  "executableName": "LocalCodexMac",
+  "bundleIdentifier": "com.workbench.app",
+  "helperName": "workbench",
+  "minimumSystemVersion": "15.0",
+  "dmgVolumeName": "Workbench"
+}
