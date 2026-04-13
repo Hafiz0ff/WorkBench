@@ -34,6 +34,10 @@ struct EngineCommandResult {
     var stderr: String
 }
 
+protocol CLICommandRunning: Sendable {
+    func runCLI(arguments: [String], currentDirectory: URL?, environment: [String: String]) async throws -> EngineCommandResult
+}
+
 final class EngineBridge: @unchecked Sendable {
     let engineRoot: URL
     let cliURL: URL
@@ -103,3 +107,5 @@ final class EngineBridge: @unchecked Sendable {
         }
     }
 }
+
+extension EngineBridge: CLICommandRunning {}

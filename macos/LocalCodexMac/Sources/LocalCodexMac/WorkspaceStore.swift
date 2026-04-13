@@ -59,19 +59,27 @@ final class WorkspaceStore: ObservableObject {
     @Published var selectedRegistryId: String?
 
     let engineBridge: EngineBridge
+    let commandRunner: any CLICommandRunning
     private var sessionProcess: Process?
     private var sessionInputPipe: Pipe?
     private var cancellables = Set<AnyCancellable>()
 
-    init() {
+    init(
+        engineBridge: EngineBridge? = nil,
+        commandRunner: (any CLICommandRunning)? = nil,
+        selectedProjectRoot: URL? = nil
+    ) {
         let storedProjectRoot = UserDefaults.standard.string(forKey: "localcodex.projectRoot") ?? ""
         let storedEngineRootOverride = UserDefaults.standard.string(forKey: "localcodex.engineRootOverride") ?? ""
         let engineRoot = WorkspaceStore.resolveEngineRoot(override: storedEngineRootOverride)
             ?? EngineBridge.detectEngineRoot()
             ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        engineBridge = EngineBridge(engineRoot: engineRoot)
-        if !storedProjectRoot.isEmpty {
-            selectedProjectRoot = URL(fileURLWithPath: storedProjectRoot)
+        self.engineBridge = engineBridge ?? EngineBridge(engineRoot: engineRoot)
+        self.commandRunner = commandRunner ?? self.engineBridge
+        if let selectedProjectRoot {
+            self.selectedProjectRoot = selectedProjectRoot
+        } else if !storedProjectRoot.isEmpty {
+            self.selectedProjectRoot = URL(fileURLWithPath: storedProjectRoot)
         }
         localeStore.objectWillChange
             .sink { [weak self] _ in
@@ -287,7 +295,7 @@ final class WorkspaceStore: ObservableObject {
         guard let root = selectedProjectRoot else { return }
         appendConsole("> app \(arguments.joined(separator: " "))", kind: .command)
         do {
-            let result = try await engineBridge.runCLI(arguments: arguments, currentDirectory: root)
+            let result = try await commandRunner.runCLI(arguments: arguments, currentDirectory: root, environment: [:])
             if !result.stdout.isEmpty {
                 appendConsole(result.stdout, kind: .output)
             }
@@ -378,7 +386,8 @@ final class WorkspaceStore: ObservableObject {
     }
 
     func scaffoldRoles() async {
-        await runCLI(["roles", "scaffold"], refreshAfter: false)
+        await runCLI(["roles", "scaffold"])
+        selectedSection = .roles
     }
 
     func installExtension() async {
