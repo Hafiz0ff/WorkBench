@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { normalizeRoot } from './security.js';
 import { evaluateCommandPolicy, readProjectPolicy, writeProjectPolicy } from './policy.js';
+import { trackEvent } from './stats.js';
 
 const TEST_RUNS_FILE_NAME = 'test-runs.jsonl';
 const TEST_RUNS_DIR_NAME = 'test-runs';
@@ -498,6 +499,20 @@ async function saveRunRecord(projectRoot, run, logOutput = '') {
   return metadata;
 }
 
+function emitTestRunEvent(projectRoot, result) {
+  void trackEvent(projectRoot, {
+    type: 'test.completed',
+    runId: result.runId,
+    taskId: result.taskId || null,
+    patchId: result.patchId || null,
+    status: result.status,
+    duration: result.duration,
+    runner: result.runner || 'unknown',
+    command: result.command || '',
+    summary: result.summary || null,
+  });
+}
+
 export async function ensureTestRunnerWorkspace(projectRoot) {
   const root = normalizeRoot(projectRoot);
   await ensureDir(getTestRunsRoot(root));
@@ -626,7 +641,7 @@ export async function runTests(options = {}) {
   const runnerConfig = normalizeTestRunnerConfig(policy);
   const commandEntry = normalizeCommandEntry(options.command || runnerConfig.command) || normalizeCommandEntry((await detectRunner(projectRoot)).command);
   if (!commandEntry) {
-    return {
+    const result = {
       runId: createRunId(),
       command: '',
       status: 'skipped',
@@ -643,6 +658,8 @@ export async function runTests(options = {}) {
       skipped: true,
       reason: 'no_command',
     };
+    emitTestRunEvent(projectRoot, result);
+    return result;
   }
 
   const commandText = [commandEntry.command, ...commandEntry.args].filter(Boolean).join(' ').trim();
@@ -672,6 +689,7 @@ export async function runTests(options = {}) {
       reason: decision.reason,
     };
     await saveRunRecord(projectRoot, result, '');
+    emitTestRunEvent(projectRoot, result);
     return result;
   }
 
@@ -695,6 +713,7 @@ export async function runTests(options = {}) {
       approvalRequired: true,
     };
     await saveRunRecord(projectRoot, result, '');
+    emitTestRunEvent(projectRoot, result);
     return result;
   }
 
@@ -724,6 +743,7 @@ export async function runTests(options = {}) {
     skipped: false,
   };
   await saveRunRecord(projectRoot, result, output);
+  emitTestRunEvent(projectRoot, result);
   return result;
 }
 

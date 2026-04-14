@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-1.2.0-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-1.3.0-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -411,6 +411,16 @@ app patch apply
 app patch reject
 ```
 
+### Stats / Статистика
+
+```bash
+app stats
+app stats --section tests
+app stats refresh
+app stats prune --keep-days 90
+app stats export --format csv
+```
+
 ### Extensions and registry / Расширения и каталог
 
 ```bash
@@ -543,6 +553,7 @@ Release docs:
 - `docs/release-notes-1.0.0.md`
 - `docs/release-notes-1.1.0.md`
 - `docs/release-notes-1.2.0.md`
+- `docs/release-notes-1.3.0.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -551,4 +562,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `1.2.0`.
+- The current release line is `1.3.0`.

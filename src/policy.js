@@ -19,6 +19,14 @@ const DEFAULT_POLICY = {
     abortOnTestFail: false,
     allowedProviders: ['ollama', 'openai', 'anthropic', 'gemini'],
   },
+  stats: {
+    enabled: true,
+    trackTokens: true,
+    autoRefreshIntervalHours: 1,
+    pruneAfterDays: 90,
+    eventsFile: '.local-codex/events.jsonl',
+    statsFile: '.local-codex/stats.json',
+  },
   testRunner: {
     command: '',
     cwd: null,
@@ -222,6 +230,24 @@ function normalizePolicy(policy = {}) {
       requirePlanApproval: policy.autoMode?.requirePlanApproval !== false,
       testOnEachStep: policy.autoMode?.testOnEachStep !== false,
       abortOnTestFail: policy.autoMode?.abortOnTestFail === true,
+    },
+    stats: {
+      ...DEFAULT_POLICY.stats,
+      ...(policy.stats || {}),
+      enabled: policy.stats?.enabled !== false,
+      trackTokens: policy.stats?.trackTokens !== false,
+      autoRefreshIntervalHours: Number.isFinite(Number(policy.stats?.autoRefreshIntervalHours)) && Number(policy.stats?.autoRefreshIntervalHours) > 0
+        ? Math.floor(Number(policy.stats.autoRefreshIntervalHours))
+        : DEFAULT_POLICY.stats.autoRefreshIntervalHours,
+      pruneAfterDays: Number.isFinite(Number(policy.stats?.pruneAfterDays)) && Number(policy.stats?.pruneAfterDays) > 0
+        ? Math.floor(Number(policy.stats.pruneAfterDays))
+        : DEFAULT_POLICY.stats.pruneAfterDays,
+      eventsFile: typeof policy.stats?.eventsFile === 'string' && policy.stats.eventsFile.trim()
+        ? policy.stats.eventsFile.trim()
+        : DEFAULT_POLICY.stats.eventsFile,
+      statsFile: typeof policy.stats?.statsFile === 'string' && policy.stats.statsFile.trim()
+        ? policy.stats.statsFile.trim()
+        : DEFAULT_POLICY.stats.statsFile,
     },
     testRunner: {
       ...DEFAULT_POLICY.testRunner,

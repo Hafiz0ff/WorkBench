@@ -64,6 +64,11 @@ import {
   listRuns as listAutoRuns,
 } from './auto-agent.js';
 import {
+  getStats,
+  listEvents as listStatsEvents,
+  refreshStats,
+} from './stats.js';
+import {
   ensureProjectPolicy,
   readProjectPolicy,
   writeProjectPolicy,
@@ -536,6 +541,9 @@ function classifyWorkspaceChange(filename) {
   if (normalized.includes('.local-codex/test-runs')) {
     return { event: 'test:completed', path: normalized };
   }
+  if (normalized.includes('.local-codex/events.jsonl') || normalized.includes('.local-codex/stats.json')) {
+    return { event: 'stats:updated', path: normalized };
+  }
   if (normalized.includes('.local-codex/patches') || normalized.includes('pending-change.json')) {
     return { event: 'patch:new', path: normalized };
   }
@@ -876,6 +884,29 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
     const result = await rejectPatchArtifact(projectRoot, null);
     runtime.send('patch:new', { taskId: result.patch?.taskId || null });
     jsonResponse(res, 200, { ok: result.rejected, patch: serializePatch(result.patch) });
+    return;
+  }
+
+  if (pathname === '/api/v1/stats' && req.method === 'GET') {
+    const stats = await getStats(projectRoot);
+    jsonResponse(res, 200, stats);
+    return;
+  }
+
+  if (pathname === '/api/v1/stats/refresh' && req.method === 'POST') {
+    const stats = await refreshStats(projectRoot);
+    runtime.send('stats:updated', { generatedAt: stats.generatedAt });
+    jsonResponse(res, 200, stats);
+    return;
+  }
+
+  if (pathname === '/api/v1/stats/events' && req.method === 'GET') {
+    const events = await listStatsEvents(projectRoot, {
+      limit: Number(searchParams.get('limit') || 100),
+      type: searchParams.get('type') || null,
+      reverse: true,
+    });
+    jsonResponse(res, 200, { events });
     return;
   }
 

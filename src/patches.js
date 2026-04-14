@@ -3,6 +3,7 @@ import path from 'node:path';
 import { normalizeRoot, resolveWithinRoot } from './security.js';
 import { evaluatePathPolicy, readProjectPolicy } from './policy.js';
 import { runConfiguredTests, getTestRunnerConfig, detectRunner } from './test-runner.js';
+import { trackEvent } from './stats.js';
 
 const PATCHES_DIR_NAME = path.join('.local-codex', 'patches');
 const PENDING_PATCH_FILE = path.join('.local-codex', 'pending-change.json');
@@ -696,6 +697,12 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
   };
   const artifactPath = path.join(root, PATCHES_DIR_NAME, artifact.patchId, 'patch.json');
   await atomicWriteFile(artifactPath, `${JSON.stringify(nextPatch, null, 2)}\n`);
+  void trackEvent(root, {
+    type: testOutcome.rolledBack ? 'patch.rolledBack' : 'patch.applied',
+    patchId: nextPatch.patchId,
+    taskId: nextPatch.taskId || null,
+    status: nextPatch.status,
+  });
 
   const pending = {
     schemaVersion: PATCH_SCHEMA_VERSION,
@@ -718,6 +725,12 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
     patchPath: path.relative(root, artifactPath),
   };
   await writePendingPatch(root, pending);
+  void trackEvent(root, {
+    type: 'patch.rejected',
+    patchId: nextPatch.patchId,
+    taskId: nextPatch.taskId || null,
+    status: nextPatch.status,
+  });
 
   return {
     applied: !testOutcome.rolledBack,
@@ -842,6 +855,12 @@ export async function rollbackPatch(projectRoot, patch = null) {
     patchPath: path.relative(root, artifactPath),
   };
   await writePendingPatch(root, pending);
+  void trackEvent(root, {
+    type: 'patch.rolledBack',
+    patchId: nextPatch.patchId,
+    taskId: nextPatch.taskId || null,
+    status: nextPatch.status,
+  });
   return {
     rolledBack: true,
     reason: null,

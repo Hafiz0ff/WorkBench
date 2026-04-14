@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+- Added local analytics and usage statistics in `.local-codex/events.jsonl` and `.local-codex/stats.json`.
+- Added `app stats`, `app stats refresh`, `app stats prune`, and `app stats export`.
+- Wired analytics events into tasks, patches, tests, auto-runs, providers, and roles.
+- Added the Stats section to the browser dashboard with KPI cards and SVG charts.
+- Updated the release line, README, and release notes for the analytics phase.
+
 ## 1.2.0
 - Added a global workspace registry under `~/.workbench/` with aliases, pins, tags, snapshots, and repair flow.
 - Added `workbench add|list|switch|status|remove|rename|pin|tag|search|refresh|config|repair`.

@@ -17,6 +17,7 @@ import { appendMessage, createMessageId, createSessionId, ensureConversationSumm
 import { listAllowedShellCommands } from './shell.js';
 import { composePromptLayers, BASE_SYSTEM_INSTRUCTIONS } from './prompt-composer.js';
 import { generatePatch } from './agent.js';
+import { trackEvent } from './stats.js';
 
 const AUTO_RUN_DIR_NAME = 'auto-runs';
 const CURRENT_AUTO_RUN_FILE = 'auto-run.json';
@@ -156,10 +157,19 @@ function parseJsonPayload(text) {
   return JSON.parse(slice);
 }
 
-async function collectProviderText(provider, messages, model) {
+async function collectProviderText(projectRoot, provider, messages, model) {
   let content = '';
   for await (const chunk of provider.chat(messages, { model })) {
     content += chunk;
+  }
+  if (projectRoot) {
+    void trackEvent(projectRoot, {
+      type: 'provider.request',
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+      promptTokens: Math.max(1, Math.ceil(JSON.stringify(messages || []).length / 4)),
+      completionTokens: Math.max(1, Math.ceil(content.length / 4)),
+    });
   }
   return content.trim();
 }
@@ -356,7 +366,7 @@ async function summarizePhase({ provider, model, task, results, request, memoryS
     },
   ];
   try {
-    const text = await collectProviderText(provider, messages, model);
+    const text = await collectProviderText(options.projectRoot || null, provider, messages, model);
     return text || '';
   } catch {
     return [
@@ -391,7 +401,7 @@ export async function planPhase(taskId, request, options = {}) {
   let lastError = null;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     try {
-      const response = await generatePatch({ provider, model, messages: planMessages });
+      const response = await generatePatch({ projectRoot, provider, model, messages: planMessages });
       const parsed = parseJsonPayload(response);
       if (!Array.isArray(parsed)) {
         throw new Error('Plan response must be a JSON array.');
@@ -433,6 +443,7 @@ export async function executeStep(taskId, step, options = {}) {
     });
     try {
       const response = await generatePatch({
+        projectRoot,
         provider,
         model,
         messages: [
@@ -461,7 +472,7 @@ export async function executeStep(taskId, step, options = {}) {
       });
 
       if (!staged.pending) {
-        return {
+        const result = {
           stepId: step.stepId,
           status: 'skipped',
           attempts: attempt,
@@ -469,6 +480,16 @@ export async function executeStep(taskId, step, options = {}) {
           patchId: null,
           testResult: 'skipped',
         };
+        if (options.runId) {
+          void trackEvent(projectRoot, {
+            type: 'auto.step',
+            runId: options.runId,
+            taskId,
+            stepId: step.stepId,
+            status: result.status,
+          });
+        }
+        return result;
       }
 
       const applied = await applyPatchSilent(projectRoot, staged.pending, {
@@ -480,7 +501,7 @@ export async function executeStep(taskId, step, options = {}) {
         throw new Error(applied.reason || 'Patch application failed.');
       }
 
-      return {
+      const result = {
         stepId: step.stepId,
         status: 'completed',
         attempts: attempt,
@@ -491,10 +512,21 @@ export async function executeStep(taskId, step, options = {}) {
           : 'skipped',
         validationResults: applied.validationResults,
       };
+      if (options.runId) {
+        void trackEvent(projectRoot, {
+          type: 'auto.step',
+          runId: options.runId,
+          taskId,
+          stepId: step.stepId,
+          status: result.status,
+          patchId: result.patchId,
+        });
+      }
+      return result;
     } catch (error) {
       lastError = error;
       if (attempt >= retryMax) {
-        return {
+        const result = {
           stepId: step.stepId,
           status: 'failed',
           attempts: attempt,
@@ -503,11 +535,22 @@ export async function executeStep(taskId, step, options = {}) {
           error: error instanceof Error ? error.message : String(error),
           testResult: 'failed',
         };
+        if (options.runId) {
+          void trackEvent(projectRoot, {
+            type: 'auto.step',
+            runId: options.runId,
+            taskId,
+            stepId: step.stepId,
+            status: result.status,
+            error: result.error || null,
+          });
+        }
+        return result;
       }
     }
   }
 
-  return {
+  const result = {
     stepId: step.stepId,
     status: 'failed',
     attempts: retryMax,
@@ -516,6 +559,17 @@ export async function executeStep(taskId, step, options = {}) {
     error: lastError instanceof Error ? lastError.message : String(lastError),
     testResult: 'failed',
   };
+  if (options.runId) {
+    void trackEvent(projectRoot, {
+      type: 'auto.step',
+      runId: options.runId,
+      taskId,
+      stepId: step.stepId,
+      status: result.status,
+      error: result.error || null,
+    });
+  }
+  return result;
 }
 
 export async function executePhase(taskId, steps, options = {}) {
@@ -649,6 +703,14 @@ export async function runAuto(taskId, request, options = {}) {
   await setCurrentTask(projectRoot, task.id, options.locale || 'ru');
   await saveAutoRun(taskFolderPath, run);
   await setTaskLastSessionId(projectRoot, task.id, sessionId, options.locale || 'ru');
+  void trackEvent(projectRoot, {
+    type: 'auto.started',
+    runId: run.runId,
+    taskId: task.id,
+    provider: provider.name,
+    model,
+    stepCount: run.plan.length,
+  });
   await appendMessage(taskFolderPath, {
     role: 'system',
     content: [
@@ -676,6 +738,7 @@ export async function runAuto(taskId, request, options = {}) {
       taskFolderPath,
       locale: options.locale || 'ru',
       completedSteps: results,
+      runId: run.runId,
     });
     results.push(result);
     await updateRunStep(taskFolderPath, run.runId, step.stepId, {
@@ -713,6 +776,14 @@ export async function runAuto(taskId, request, options = {}) {
     results,
   };
   await saveAutoRun(taskFolderPath, completedRun);
+  void trackEvent(projectRoot, {
+    type: 'auto.completed',
+    runId: run.runId,
+    taskId: task.id,
+    provider: provider.name,
+    model,
+    stepCount: results.length,
+  });
 
   return {
     run: completedRun,
@@ -765,6 +836,13 @@ export async function abortRun(taskId, runId, options = {}) {
     provider: run.provider || 'system',
     model: run.model || null,
     sessionId: run.sessionId || null,
+  });
+  void trackEvent(projectRoot, {
+    type: 'auto.aborted',
+    runId: run.runId,
+    taskId: task.id,
+    provider: run.provider || 'unknown',
+    model: run.model || null,
   });
   return { aborted: true, run: nextRun };
 }

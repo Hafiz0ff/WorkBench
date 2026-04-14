@@ -4,6 +4,10 @@ DerivedData/
 node_modules/
 dist/
 .local-codex/
+.local-codex/events.jsonl
+.local-codex/stats.json
+.local-codex/test-runs.jsonl
+.local-codex/test-runs/
 .local-codex/providers.json
 .local-codex/server.pid
 *.app

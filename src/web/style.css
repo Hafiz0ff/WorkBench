@@ -659,6 +659,51 @@ a {
   background: rgba(244, 178, 77, 0.9);
 }
 
+.chart {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+}
+
+.chart text {
+  fill: var(--quiet);
+  font-size: 11px;
+}
+
+.progress-row {
+  display: grid;
+  grid-template-columns: minmax(0, 180px) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.progress-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.progress-value {
+  color: var(--quiet);
+  font-size: 0.82rem;
+}
+
 .section-stack {
   display: grid;
   gap: 14px;
@@ -732,6 +777,10 @@ a {
   }
 
   .grid.cards {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-row {
     grid-template-columns: 1fr;
   }
 

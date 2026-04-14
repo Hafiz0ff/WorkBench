@@ -107,6 +107,60 @@ test('auto execute step applies patch to disk', async () => {
   assert.equal(await readFile(path.join(root, 'src/generated.txt'), 'utf8'), 'hello from auto mode');
 });
 
+test('auto run emits lifecycle events', async () => {
+  const root = await createTempProject();
+  const task = await createTask(root, {
+    title: 'Auto lifecycle flow',
+    userRequest: 'Проверить auto lifecycle',
+  });
+  const provider = createSequencedProvider([
+    JSON.stringify([
+      {
+        stepId: 'step-1',
+        title: 'Create file',
+        description: 'Create a file for the feature',
+        files: ['src/lifecycle.txt'],
+      },
+    ]),
+    JSON.stringify({
+      summary: 'Create lifecycle file',
+      changes: [
+        {
+          path: 'src/lifecycle.txt',
+          action: 'create',
+          content: 'auto lifecycle',
+        },
+      ],
+      validationCommands: [],
+    }),
+    '# Auto run summary\n- Done',
+  ]);
+
+  const result = await runAuto(task.id, 'Проверить lifecycle', {
+    projectRoot: root,
+    provider,
+    model: 'mock-model',
+    autoMode: {
+      enabled: true,
+      requirePlanApproval: false,
+      testOnEachStep: false,
+      retryMax: 1,
+      maxSteps: 5,
+      summarizeAfter: 50,
+      historyMessages: 20,
+    },
+    noTests: true,
+    locale: 'ru',
+  });
+
+  assert.equal(result.run.status, 'completed');
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const events = await readFile(path.join(root, '.local-codex', 'events.jsonl'), 'utf8');
+  assert.match(events, /"type":"auto\.started"/);
+  assert.match(events, /"type":"auto\.step"/);
+  assert.match(events, /"type":"auto\.completed"/);
+});
+
 test('auto dry-run returns a plan without mutating workspace state', async () => {
   const root = await createTempProject();
   const task = await createTask(root, {
@@ -214,4 +268,7 @@ test('auto abort rolls back a pending patch and marks the run aborted', async ()
   assert.equal(result.aborted, true);
   assert.equal(await readFile(targetFile, 'utf8'), 'old content\n');
   assert.equal(result.run.status, 'aborted');
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const events = await readFile(path.join(root, '.local-codex', 'events.jsonl'), 'utf8');
+  assert.match(events, /"type":"auto\.aborted"/);
 });

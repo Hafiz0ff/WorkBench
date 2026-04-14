@@ -10,6 +10,7 @@ const state = {
   patch: null,
   patchHistory: [],
   testsHistory: [],
+  stats: null,
   providers: [],
   roles: [],
   workspaces: [],
@@ -29,6 +30,7 @@ const sectionMeta = {
   tasks: { label: 'Задачи', icon: '☰', subtitle: 'история и план' },
   patches: { label: 'Патчи', icon: '≡', subtitle: 'pending diff' },
   tests: { label: 'Тесты', icon: '✓', subtitle: 'прогоны и логи' },
+  stats: { label: 'Статистика', icon: '✦', subtitle: 'аналитика использования' },
   memory: { label: 'Память', icon: '◫', subtitle: 'project context' },
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
   roles: { label: 'Роли', icon: '◎', subtitle: 'profiles' },
@@ -220,6 +222,86 @@ function renderSparkline(runs) {
   }</div>`;
 }
 
+function renderBarChart(data, options = {}) {
+  const items = Array.isArray(data) ? data : [];
+  const width = Number(options.width) || 640;
+  const height = Number(options.height) || 180;
+  const maxBars = Number.isFinite(Number(options.maxBars)) ? Math.max(1, Number(options.maxBars)) : 14;
+  const color = options.color || 'var(--accent)';
+  const slice = items.slice(-maxBars);
+  const maxValue = Math.max(1, ...slice.map((item) => Number(item.count) || 0));
+  const barWidth = slice.length ? width / slice.length : width;
+  const bars = slice.map((item, index) => {
+    const value = Number(item.count) || 0;
+    const barHeight = Math.max(2, Math.round((value / maxValue) * (height - 28)));
+    const x = Math.round(index * barWidth);
+    const y = height - barHeight - 20;
+    return `
+      <g>
+        <rect x="${x + 6}" y="${y}" width="${Math.max(4, barWidth - 12)}" height="${barHeight}" rx="6" fill="${color}"></rect>
+        <title>${escapeHtml(`${item.date || ''}: ${value}`)}</title>
+        <text x="${x + (barWidth / 2)}" y="${height - 6}" text-anchor="middle">${escapeHtml(String(item.date || '').slice(-5))}</text>
+      </g>
+    `;
+  }).join('');
+  return `
+    <svg class="chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" width="100%" height="${height}">
+      <line x1="0" y1="${height - 20}" x2="${width}" y2="${height - 20}" stroke="var(--line-strong)" />
+      ${bars}
+    </svg>
+  `;
+}
+
+function renderLineChart(data, options = {}) {
+  const items = Array.isArray(data) ? data : [];
+  const width = Number(options.width) || 640;
+  const height = Number(options.height) || 180;
+  const color = options.color || 'var(--accent)';
+  const fill = options.fill || 'rgba(79, 152, 163, 0.12)';
+  const slice = items.slice(-14);
+  const maxValue = Math.max(1, ...slice.map((item) => Number(item.count ?? item.value) || 0));
+  const stepX = slice.length > 1 ? width / (slice.length - 1) : width;
+  const points = slice.map((item, index) => {
+    const value = Number(item.count ?? item.value) || 0;
+    const x = Math.round(index * stepX);
+    const y = Math.round(height - 24 - ((value / maxValue) * (height - 40)));
+    return { x, y, value, item };
+  });
+  const line = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const area = points.length
+    ? `${line} L ${points[points.length - 1].x} ${height - 18} L ${points[0].x} ${height - 18} Z`
+    : '';
+  return `
+    <svg class="chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" width="100%" height="${height}">
+      <path d="${area}" fill="${fill}"></path>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>
+      ${points.map((point, index) => `
+        <g>
+          <circle cx="${point.x}" cy="${point.y}" r="4" fill="${color}"></circle>
+          <title>${escapeHtml(`${point.item.date || ''}: ${point.value}`)}</title>
+          ${index === 0 || index === points.length - 1 ? `<text x="${point.x}" y="${height - 4}" text-anchor="${index === 0 ? 'start' : 'end'}">${escapeHtml(String(point.item.date || '').slice(-5))}</text>` : ''}
+        </g>
+      `).join('')}
+    </svg>
+  `;
+}
+
+function renderProgressBar(value, max, options = {}) {
+  const safeMax = Number(max) > 0 ? Number(max) : 1;
+  const safeValue = Math.max(0, Math.min(safeMax, Number(value) || 0));
+  const percent = (safeValue / safeMax) * 100;
+  const label = options.label || '';
+  return `
+    <div class="progress-row">
+      <div class="progress-label">${escapeHtml(label)}</div>
+      <div class="progress-track">
+        <div class="progress-fill" style="width:${percent}%; background:${options.color || 'var(--accent)'}"></div>
+      </div>
+      <div class="progress-value">${escapeHtml(options.showPercent === false ? String(safeValue) : `${percent.toFixed(0)}%`)}</div>
+    </div>
+  `;
+}
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
     headers: {
@@ -263,6 +345,7 @@ function navMarkup() {
     tasks: state.tasks.length,
     patches: state.patchHistory.length,
     tests: state.testsHistory.length,
+    stats: state.stats ? 1 : 0,
     memory: state.memory?.summaries?.length || 0,
     providers: state.providers.length,
     roles: state.roles.length,
@@ -302,11 +385,12 @@ function headerMarkup() {
 }
 
 function metricCard(label, value, sub = '') {
+  const hasValue = value !== null && value !== undefined && value !== '';
   return `
     <div class="card compact">
       <div class="metric">
         <div class="metric-label">${escapeHtml(label)}</div>
-        <div class="metric-value">${value ? escapeHtml(value) : '—'}</div>
+        <div class="metric-value">${hasValue ? escapeHtml(value) : '—'}</div>
         ${sub ? `<div class="metric-sub">${escapeHtml(sub)}</div>` : ''}
       </div>
     </div>
@@ -601,6 +685,81 @@ function renderTests() {
   );
 }
 
+function renderStats() {
+  const stats = state.stats;
+  const topFiles = Array.isArray(stats?.tasks?.topFiles) ? stats.tasks.topFiles : [];
+  const providerUsage = Array.isArray(stats?.providers?.usage) ? stats.providers.usage : [];
+  const providerTotal = providerUsage.reduce((sum, entry) => sum + (Number(entry.requests) || 0), 0) || 1;
+  const doneRate = stats?.tasks?.total ? Math.round(((stats?.tasks?.byStatus?.done || 0) / stats.tasks.total) * 100) : 0;
+  const acceptRate = Math.round((stats?.patches?.acceptRate || 0) * 100);
+  const passRate = Math.round((stats?.tests?.passRate || 0) * 100);
+  const autoRate = stats?.autoRuns?.total ? Math.round(((stats?.autoRuns?.completed || 0) / stats.autoRuns.total) * 100) : 0;
+
+  return sectionWrapper(
+    'Статистика',
+    'Локальная аналитика по задачам, патчам, тестам, авто-рунам, провайдерам и ролям.',
+    buttonMarkup('Обновить статистику', 'refresh-stats', '', 'primary'),
+    `
+      <div class="grid cards">
+        ${[
+          ['Задачи', stats?.tasks?.total || 0, `${doneRate}% done`],
+          ['Патчи', stats?.patches?.total || 0, `${acceptRate}% accept`],
+          ['Тесты', stats?.tests?.total || 0, `${passRate}% pass`],
+          ['Auto runs', stats?.autoRuns?.total || 0, `${autoRate}% success`],
+        ].map(([label, value, sub]) => metricCard(label, value, sub)).join('')}
+      </div>
+      <div class="grid two-up">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Патчи по дням</h2></div>
+          <div class="card-body">
+            ${renderBarChart(stats?.patches?.appliedByDay || [], { color: 'var(--accent)' })}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Тесты по дням</h2></div>
+          <div class="card-body">
+            ${renderLineChart(stats?.tests?.runsByDay || [], { color: 'var(--ok)', fill: 'rgba(57, 201, 138, 0.12)' })}
+          </div>
+        </div>
+      </div>
+      <div class="grid two-up">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Провайдеры</h2></div>
+          <div class="card-body">
+            <div class="section-stack">
+              ${providerUsage.length ? providerUsage.map((entry) => renderProgressBar(entry.requests || 0, providerTotal, {
+                label: `${entry.provider}/${entry.model}`,
+                color: 'var(--accent)',
+                showPercent: true,
+              })).join('') : emptyState('Пока нет данных', 'Запускайте агентные сессии и тесты, чтобы собрать статистику.')}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Топ файлов</h2></div>
+          <div class="card-body">
+            ${topFiles.length ? `
+              <div class="list">
+                ${topFiles.map((file, index) => `
+                  <div class="list-item">
+                    <div class="list-main">
+                      <div class="list-title">${index + 1}. ${escapeHtml(file.path)}</div>
+                      <div class="list-subtitle">Изменено в ${escapeHtml(String(file.taskCount || 0))} задачах</div>
+                    </div>
+                    <div class="list-meta">
+                      <span class="tiny-badge">${escapeHtml(String(file.taskCount || 0))}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : emptyState('Нет данных по файлам', 'После работы с проектом здесь появятся самые активные файлы.')}
+          </div>
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderMemory() {
   const entries = [
     ['Обзор проекта', state.memory?.overview],
@@ -798,6 +957,8 @@ function renderMain() {
       return renderPatches();
     case 'tests':
       return renderTests();
+    case 'stats':
+      return renderStats();
     case 'memory':
       return renderMemory();
     case 'providers':
@@ -847,13 +1008,14 @@ function render() {
 }
 
 async function loadProjectData() {
-  const [project, memory, tasks, patch, patchHistory, testsHistory, providers, roles, workspaces] = await Promise.all([
+  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, providers, roles, workspaces] = await Promise.all([
     apiGet('/api/v1/project/status'),
     apiGet('/api/v1/project/memory'),
     apiGet('/api/v1/tasks'),
     apiGet('/api/v1/patches/pending'),
     apiGet('/api/v1/patches/history?limit=20'),
     apiGet('/api/v1/tests/history?limit=20'),
+    apiGet('/api/v1/stats'),
     apiGet('/api/v1/providers'),
     apiGet('/api/v1/roles'),
     apiGet('/api/v1/workspaces'),
@@ -865,6 +1027,7 @@ async function loadProjectData() {
   state.patch = patch || null;
   state.patchHistory = patchHistory.patches || [];
   state.testsHistory = testsHistory.runs || [];
+  state.stats = stats || null;
   state.providers = providers.providers || [];
   state.roles = roles.roles || [];
   state.workspaces = workspaces.workspaces || [];
@@ -1003,6 +1166,11 @@ async function handleAction(action, target) {
       state.statusMessage = 'Память проекта обновлена.';
       await reloadView();
       return;
+    case 'refresh-stats':
+      await apiPost('/api/v1/stats/refresh', {});
+      state.statusMessage = 'Статистика обновлена.';
+      await reloadView();
+      return;
     case 'refresh-all':
       await reloadView('Данные обновлены.');
       return;
@@ -1036,6 +1204,7 @@ function connectEvents() {
   source.addEventListener('auto:step', refresh);
   source.addEventListener('project:refreshed', refresh);
   source.addEventListener('workspace:updated', refresh);
+  source.addEventListener('stats:updated', refresh);
 }
 
 app.addEventListener('click', async (event) => {

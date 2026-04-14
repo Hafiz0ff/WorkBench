@@ -2,7 +2,7 @@
 
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
-import { access, stat } from 'node:fs/promises';
+import { access, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -121,6 +121,12 @@ import {
   updatePolicyWithDetectedRunner,
 } from './test-runner.js';
 import {
+  formatStatsReport,
+  getStats,
+  pruneEvents,
+  refreshStats,
+} from './stats.js';
+import {
   appendMessage as appendConversationMessage,
   clearHistory as clearConversationHistory,
   createMessageId,
@@ -193,6 +199,26 @@ function parseOptions(argv) {
     }
     if (value === '--limit') {
       options.limit = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--section') {
+      options.section = argv[++i];
+      continue;
+    }
+    if (value === '--from') {
+      options.from = argv[++i];
+      continue;
+    }
+    if (value === '--to') {
+      options.to = argv[++i];
+      continue;
+    }
+    if (value === '--json') {
+      options.json = true;
+      continue;
+    }
+    if (value === '--keep-days') {
+      options.keepDays = Number(argv[++i]);
       continue;
     }
     if (value === '--task') {
@@ -1397,6 +1423,110 @@ async function handleServerCommand(subcommand, options, t, locale) {
   }
 
   printUsage(t);
+}
+
+function formatStatsCsv(stats) {
+  const rows = [['section', 'metric', 'value']];
+  const push = (section, metric, value) => {
+    rows.push([section, metric, String(value ?? '')]);
+  };
+
+  push('meta', 'generatedAt', stats.generatedAt || '');
+  push('meta', 'periodFrom', stats.period?.from || '');
+  push('meta', 'periodTo', stats.period?.to || '');
+  push('tasks', 'total', stats.tasks?.total || 0);
+  push('tasks', 'active', stats.tasks?.byStatus?.active || 0);
+  push('tasks', 'done', stats.tasks?.byStatus?.done || 0);
+  push('tasks', 'archived', stats.tasks?.byStatus?.archived || 0);
+  push('patches', 'total', stats.patches?.total || 0);
+  push('patches', 'applied', stats.patches?.applied || 0);
+  push('patches', 'rejected', stats.patches?.rejected || 0);
+  push('patches', 'rolledBack', stats.patches?.rolledBack || 0);
+  push('tests', 'total', stats.tests?.total || 0);
+  push('tests', 'passed', stats.tests?.passed || 0);
+  push('tests', 'failed', stats.tests?.failed || 0);
+  push('tests', 'errored', stats.tests?.errored || 0);
+  push('tests', 'timeout', stats.tests?.timeout || 0);
+  push('autoRuns', 'total', stats.autoRuns?.total || 0);
+  push('autoRuns', 'completed', stats.autoRuns?.completed || 0);
+  push('autoRuns', 'aborted', stats.autoRuns?.aborted || 0);
+  push('providers', 'topProvider', stats.providers?.topProvider || '');
+  push('roles', 'topRole', stats.roles?.topRole || '');
+  push('tokens', 'prompt', stats.tokens?.totalPrompt || 0);
+  push('tokens', 'completion', stats.tokens?.totalCompletion || 0);
+  for (const file of Array.isArray(stats.tasks?.topFiles) ? stats.tasks.topFiles : []) {
+    push('topFiles', file.path || '', file.taskCount || 0);
+  }
+
+  return rows.map((row) => row.map((value) => {
+    const text = String(value ?? '');
+    if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+      return `"${text.replaceAll('"', '""')}"`;
+    }
+    return text;
+  }).join(',')).join('\n');
+}
+
+async function resolveStatsExportPath(basePath, format) {
+  const extension = format === 'csv' ? '.csv' : '.json';
+  const defaultName = `workbench-stats${extension}`;
+  if (!basePath) {
+    return path.join(process.cwd(), defaultName);
+  }
+  const resolved = path.resolve(basePath);
+  try {
+    const info = await stat(resolved);
+    if (info.isDirectory()) {
+      return path.join(resolved, defaultName);
+    }
+  } catch {
+    // ignore
+  }
+  if (resolved.endsWith(path.sep)) {
+    return path.join(resolved, defaultName);
+  }
+  return resolved;
+}
+
+async function handleStatsCommand(subcommand, options, t, locale) {
+  const projectRoot = process.cwd();
+
+  if (subcommand === 'refresh') {
+    const stats = await refreshStats(projectRoot, {
+      from: options.from || null,
+      to: options.to || null,
+    });
+    console.log('Статистика обновлена.');
+    console.log(`Сгенерировано: ${formatDate(stats.generatedAt, locale)}`);
+    return;
+  }
+
+  if (subcommand === 'prune') {
+    const keepDays = Number.isFinite(options.keepDays) ? options.keepDays : 90;
+    const result = await pruneEvents(projectRoot, keepDays);
+    console.log(`Удалено событий: ${result.removed}`);
+    console.log(`Осталось: ${result.kept}`);
+    return;
+  }
+
+  if (subcommand === 'export') {
+    const stats = await getStats(projectRoot);
+    const format = String(options.format || 'json').trim().toLowerCase() === 'csv' ? 'csv' : 'json';
+    const outputPath = await resolveStatsExportPath(options.output || null, format);
+    const content = format === 'csv'
+      ? `${formatStatsCsv(stats)}\n`
+      : `${JSON.stringify(stats, null, 2)}\n`;
+    await writeFile(outputPath, content, 'utf8');
+    console.log(`Статистика экспортирована: ${outputPath}`);
+    return;
+  }
+
+  const stats = await getStats(projectRoot);
+  if (options.json) {
+    console.log(JSON.stringify(stats, null, 2));
+    return;
+  }
+  console.log(formatStatsReport(stats, { section: options.section || 'all' }));
 }
 
 async function handleTestCommand(subcommand, options, t, locale) {
@@ -2604,6 +2734,14 @@ async function main() {
 
   if (command === 'server') {
     await handleServerCommand(subcommand, options, t, locale);
+    return;
+  }
+
+  if (command === 'stats') {
+    const statsSubcommands = new Set(['refresh', 'prune', 'export']);
+    const statsSubcommand = statsSubcommands.has(subcommand) ? subcommand : null;
+    const statsOptions = statsSubcommand ? options : parseOptions([subcommand, ...rest].filter((value) => value !== undefined));
+    await handleStatsCommand(statsSubcommand, statsOptions, t, locale);
     return;
   }
 

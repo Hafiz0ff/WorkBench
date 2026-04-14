@@ -5,6 +5,7 @@ import { ensureProjectMemory, readProjectState, updateProjectState } from './mem
 import { ensureConversationFile } from './conversation.js';
 import { getCurrentRoleSelection, loadRoleProfile } from './roles.js';
 import { createTranslator, getDefaultLocale } from './i18n.js';
+import { trackEvent } from './stats.js';
 
 const TASKS_DIR_NAME = path.join('.local-codex', 'tasks');
 const TASKS_SCHEMA_VERSION = 1;
@@ -536,6 +537,13 @@ export async function createTask(projectRoot, input = {}, locale = getDefaultLoc
 
   const index = await readIndex(root);
   await writeIndex(root, upsertIndexRecord(index, task, FOLDER_KINDS.active));
+  void trackEvent(root, {
+    type: 'task.created',
+    taskId: task.id,
+    status: task.status,
+    role: task.role || null,
+    model: task.model || null,
+  });
 
   return {
     ...task,
@@ -727,6 +735,13 @@ export async function markTaskDone(projectRoot, idOrSlug, { locale = getDefaultL
   await writeTaskStatus(root, location, task.id, nextTask);
   const index = await readIndex(root);
   await writeIndex(root, upsertIndexRecord(index, { ...nextTask, location }, location));
+  void trackEvent(root, {
+    type: 'task.done',
+    taskId: task.id,
+    status: nextTask.status,
+    role: nextTask.role || null,
+    model: nextTask.model || null,
+  });
   const state = await readProjectState(root);
   if (state?.currentTaskId === task.id) {
     await updateProjectState(root, { currentTaskId: null });
@@ -755,6 +770,13 @@ export async function archiveTask(projectRoot, idOrSlug, { locale = getDefaultLo
   await writeTaskStatus(root, FOLDER_KINDS.archive, task.id, nextTask);
   const index = await readIndex(root);
   await writeIndex(root, upsertIndexRecord(index, { ...nextTask, location: FOLDER_KINDS.archive }, FOLDER_KINDS.archive));
+  void trackEvent(root, {
+    type: 'task.archived',
+    taskId: task.id,
+    status: nextTask.status,
+    role: nextTask.role || null,
+    model: nextTask.model || null,
+  });
 
   const state = await readProjectState(root);
   if (state?.currentTaskId === task.id) {

@@ -6,6 +6,7 @@
 - [Phase 3](./phase-3/tz.md) - CI loop and test runners - completed
 - [Phase 4](./phase-4/tz.md) - Web UI / local dashboard - completed
 - [Phase 5](./phase-5/tz.md) - Workspace / multi-project mode - completed
+- [Phase 6](./phase-6/tz.md) - Analytics and usage statistics - completed
 
 ## Status
 
@@ -15,4 +16,5 @@
 - Phase 3: completed
 - Phase 4: completed
 - Phase 5: completed
+- Phase 6: completed
 - Documentation is append-only.

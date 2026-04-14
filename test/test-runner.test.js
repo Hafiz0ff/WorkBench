@@ -105,6 +105,8 @@ test('runTests records history and pruneHistory keeps the newest entries', async
   const history = await getHistory(root, { limit: 10 });
   assert.equal(history.length, 2);
   assert.match(history[0].runId, /^testrun-/);
+  const events = await readFile(path.join(root, '.local-codex', 'events.jsonl'), 'utf8');
+  assert.match(events, /"type":"test\.completed"/);
 
   const pruned = await pruneHistory(root, 1);
   assert.equal(pruned.pruned, 1);

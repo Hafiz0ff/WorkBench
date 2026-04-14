@@ -2,6 +2,7 @@ import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { readProjectFile, writeProjectFile, listProjectFiles } from './project.js';
 import { listAllowedShellCommands, runShellCommand } from './shell.js';
+import { trackEvent } from './stats.js';
 
 function stripCodeFence(text) {
   const trimmed = text.trim();
@@ -110,20 +111,39 @@ function formatToolResult(call, result) {
   ].join('\n');
 }
 
-async function runModelRound({ provider, model, messages }) {
-  const content = await collectModelText(provider, model, messages);
+function estimateTokens(text) {
+  const value = String(text || '');
+  return Math.max(1, Math.ceil(value.length / 4));
+}
+
+function estimateMessageTokens(messages) {
+  return estimateTokens(JSON.stringify(messages || []));
+}
+
+async function runModelRound({ projectRoot = null, provider, model, messages }) {
+  const content = await collectModelText(projectRoot, provider, model, messages);
   return parseAssistantEnvelope(content);
 }
 
-async function collectModelText(provider, model, messages) {
+async function collectModelText(projectRoot, provider, model, messages) {
   let content = '';
   for await (const chunk of provider.chat(messages, { model })) {
     content += chunk;
+  }
+  if (projectRoot) {
+    void trackEvent(projectRoot, {
+      type: 'provider.request',
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+      promptTokens: estimateMessageTokens(messages),
+      completionTokens: estimateTokens(content),
+    });
   }
   return content;
 }
 
 export async function generatePatch({
+  projectRoot = null,
   provider,
   model,
   prompt,
@@ -136,7 +156,7 @@ export async function generatePatch({
       { role: 'system', content: String(prompt || '').trim() },
       ...(Array.isArray(context) ? context : []),
     ].filter((message) => typeof message?.content === 'string' && message.content.trim());
-  return collectModelText(provider, model, payload);
+  return collectModelText(projectRoot, provider, model, payload);
 }
 
 export async function runInteractiveAgent({
@@ -175,7 +195,7 @@ export async function runInteractiveAgent({
 
     while (rounds < 8) {
       rounds += 1;
-      const assistant = await runModelRound({ provider, model, messages });
+      const assistant = await runModelRound({ projectRoot: root, provider, model, messages });
       lastAssistantMessage = assistant.message || '';
       if (assistant.message) {
         console.log(`\n${assistant.message}\n`);

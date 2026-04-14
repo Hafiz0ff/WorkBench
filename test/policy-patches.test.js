@@ -112,6 +112,9 @@ test('apply and reject lifecycle updates patch state and preserves file content 
   const rejected = await rejectPatchArtifact(root, null);
   assert.equal(rejected.rejected, true);
   assert.match(await readText(path.join(root, 'src', 'index.js')), /value = 2/);
+  const events = await readText(path.join(root, '.local-codex', 'events.jsonl'));
+  assert.match(events, /"type":"patch\.applied"/);
+  assert.match(events, /"type":"patch\.rejected"/);
 });
 
 test('approval mode changes path and command decisions', async () => {
@@ -165,6 +168,8 @@ test('auto-with-tests rolls back a patch when the configured tests fail', async 
   assert.equal(applied.applied, false);
   assert.equal(applied.testOutcome.rolledBack, true);
   assert.match(await readText(path.join(root, 'src', 'index.js')), /value = 1/);
+  const events = await readText(path.join(root, '.local-codex', 'events.jsonl'));
+  assert.match(events, /"type":"patch\.rolledBack"/);
 });
 
 test('validation results are logged back into the current task notes after patch apply', async () => {

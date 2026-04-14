@@ -8,6 +8,7 @@ import { appendMessage, createMessageId, createSessionId } from '../src/conversa
 import { setProviderApiKey } from '../src/providers/index.js';
 import { startServer, stopServer } from '../src/server.js';
 import { setCurrentTask } from '../src/tasks.js';
+import { trackEvent } from '../src/stats.js';
 
 async function createProjectRoot() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-server-'));
@@ -56,6 +57,13 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
     provider: 'ollama',
     model: 'qwen2.5-coder:14b',
     sessionId,
+  });
+  await trackEvent(root, {
+    type: 'provider.request',
+    provider: 'openai',
+    model: 'gpt-4o',
+    promptTokens: 200,
+    completionTokens: 50,
   });
 
   const { url } = await startTestServer(root);
@@ -113,6 +121,14 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
 
   const testsHistory = await fetch(`${url}/api/v1/tests/history?limit=5`).then((response) => response.json());
   assert.ok(testsHistory.runs.length >= 1);
+
+  const stats = await fetch(`${url}/api/v1/stats`).then((response) => response.json());
+  assert.ok(stats.tasks.total >= 1);
+  assert.equal(stats.providers.topProvider, 'openai');
+
+  const statsEvents = await fetch(`${url}/api/v1/stats/events?limit=10`).then((response) => response.json());
+  assert.ok(Array.isArray(statsEvents.events));
+  assert.ok(statsEvents.events.length >= 1);
 
   const rootHtml = await fetch(`${url}/`).then((response) => response.text());
   assert.match(rootHtml, /Workbench Dashboard/);

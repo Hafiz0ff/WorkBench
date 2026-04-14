@@ -3,6 +3,7 @@ import path from 'node:path';
 import { ensureProjectMemory, readProjectState, updateProjectState } from './memory.js';
 import { getBuiltinRoleTemplate, getBuiltinRoleTemplates, getBuiltinRoleNames } from './role-templates.js';
 import { listEnabledExtensionRoleProfiles } from './extensions.js';
+import { trackEvent } from './stats.js';
 
 const ROLE_DIR_NAME = path.join('.local-codex', 'prompts', 'roles');
 const ROLE_ALIASES = new Map([
@@ -424,6 +425,11 @@ export async function setActiveRole(projectRoot, roleName) {
   const profile = await loadRoleProfile(root, roleName);
   await updateProjectState(root, {
     activeRole: profile.name,
+  });
+  void trackEvent(root, {
+    type: 'role.used',
+    role: profile.name,
+    filePath: profile.filePath,
   });
   return profile;
 }
