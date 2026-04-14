@@ -6,6 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { emitter } from './events.js';
 import {
   ensureProjectMemory,
   getProjectMemoryStatus,
@@ -68,6 +69,12 @@ import {
   listEvents as listStatsEvents,
   refreshStats,
 } from './stats.js';
+import {
+  getHookHistory,
+  listHooks,
+  setHookEnabled,
+  testHook,
+} from './hooks.js';
 import {
   ensureProjectPolicy,
   readProjectPolicy,
@@ -538,15 +545,6 @@ function classifyWorkspaceChange(filename) {
   if (!normalized) {
     return null;
   }
-  if (normalized.includes('.local-codex/test-runs')) {
-    return { event: 'test:completed', path: normalized };
-  }
-  if (normalized.includes('.local-codex/events.jsonl') || normalized.includes('.local-codex/stats.json')) {
-    return { event: 'stats:updated', path: normalized };
-  }
-  if (normalized.includes('.local-codex/patches') || normalized.includes('pending-change.json')) {
-    return { event: 'patch:new', path: normalized };
-  }
   if (normalized.includes('.local-codex/tasks')) {
     if (normalized.endsWith('auto-run.json')) {
       return { event: 'auto:step', path: normalized };
@@ -633,6 +631,15 @@ function createRuntime(projectRoot, config) {
     }
   };
 
+  const handleWorkbenchEvent = (event) => {
+    if (!event || (event.projectRoot && normalizeRoot(event.projectRoot) !== root)) {
+      return;
+    }
+    send('workbench:event', event);
+  };
+
+  emitter.on('workbench:event', handleWorkbenchEvent);
+
   const watchPaths = [root];
   for (const watchPath of watchPaths) {
     try {
@@ -653,6 +660,7 @@ function createRuntime(projectRoot, config) {
     config,
     clients,
     send,
+    handleWorkbenchEvent,
     stopHeartbeat,
     watcherHandles,
     signalHandlers: [],
@@ -685,6 +693,13 @@ async function closeRuntime(projectRoot) {
   for (const res of runtime.clients || []) {
     try {
       res.end();
+    } catch {
+      // ignore
+    }
+  }
+  if (runtime.handleWorkbenchEvent) {
+    try {
+      emitter.off('workbench:event', runtime.handleWorkbenchEvent);
     } catch {
       // ignore
     }
@@ -875,14 +890,12 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
       policy,
       promptApproval: body.promptApproval,
     });
-    runtime.send('patch:new', { taskId: result.patch?.taskId || null });
     jsonResponse(res, 200, { ok: result.applied, testResult: result.testOutcome || null, patch: serializePatch(result.patch) });
     return;
   }
 
   if (pathname === '/api/v1/patches/reject' && req.method === 'POST') {
     const result = await rejectPatchArtifact(projectRoot, null);
-    runtime.send('patch:new', { taskId: result.patch?.taskId || null });
     jsonResponse(res, 200, { ok: result.rejected, patch: serializePatch(result.patch) });
     return;
   }
@@ -942,7 +955,6 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
       taskId: body.taskId || null,
       allowApprovalBypass: true,
     });
-    runtime.send('test:completed', { runId: result.runId, status: result.status });
     jsonResponse(res, 200, { run: serializeTestRun(result) });
     return;
   }
@@ -1039,8 +1051,43 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
     const segments = pathname.split('/').filter(Boolean);
     const roleName = decodeURIComponent(segments[3] || '');
     const role = await setActiveRole(projectRoot, roleName);
-    runtime.send('task:updated', { role: role.name });
     jsonResponse(res, 200, { ok: true, role: serializeRole(role) });
+    return;
+  }
+
+  if (pathname === '/api/v1/hooks' && req.method === 'GET') {
+    jsonResponse(res, 200, { hooks: await listHooks(projectRoot) });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/hooks/') && pathname.endsWith('/test') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const hookId = decodeURIComponent(segments[3] || '');
+    jsonResponse(res, 200, { results: await testHook(projectRoot, hookId) });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/hooks/') && pathname.endsWith('/enable') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const hookId = decodeURIComponent(segments[3] || '');
+    const hook = await setHookEnabled(projectRoot, hookId, true);
+    jsonResponse(res, 200, { ok: true, hook });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/hooks/') && pathname.endsWith('/disable') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const hookId = decodeURIComponent(segments[3] || '');
+    const hook = await setHookEnabled(projectRoot, hookId, false);
+    jsonResponse(res, 200, { ok: true, hook });
+    return;
+  }
+
+  if (pathname === '/api/v1/hooks/history' && req.method === 'GET') {
+    const history = await getHookHistory(projectRoot, {
+      limit: Number(searchParams.get('limit') || 20),
+    });
+    jsonResponse(res, 200, { history });
     return;
   }
 

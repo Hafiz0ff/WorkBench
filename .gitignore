@@ -8,6 +8,8 @@ dist/
 .local-codex/stats.json
 .local-codex/test-runs.jsonl
 .local-codex/test-runs/
+.local-codex/hook-history.jsonl
+.local-codex/hook-errors.log
 .local-codex/providers.json
 .local-codex/server.pid
 *.app

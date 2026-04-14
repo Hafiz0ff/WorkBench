@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+- Added event hooks with shell, Telegram, and webhook channels.
+- Introduced shared event emitter wiring for stats, hooks, and SSE.
+- Added hooks API, dashboard section, and Telegram secret storage flow.
+- Documented Phase 7 and updated the release line for hooks support.
+
 ## 1.3.0
 - Added local analytics and usage statistics in `.local-codex/events.jsonl` and `.local-codex/stats.json`.
 - Added `app stats`, `app stats refresh`, `app stats prune`, and `app stats export`.

@@ -130,6 +130,13 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   assert.ok(Array.isArray(statsEvents.events));
   assert.ok(statsEvents.events.length >= 1);
 
+  const hooks = await fetch(`${url}/api/v1/hooks`).then((response) => response.json());
+  assert.ok(Array.isArray(hooks.hooks));
+  assert.ok(!JSON.stringify(hooks).includes('sk-test-secret'));
+
+  const hookHistory = await fetch(`${url}/api/v1/hooks/history?limit=5`).then((response) => response.json());
+  assert.ok(Array.isArray(hookHistory.history));
+
   const rootHtml = await fetch(`${url}/`).then((response) => response.text());
   assert.match(rootHtml, /Workbench Dashboard/);
   const appJs = await fetch(`${url}/app.js`).then((response) => response.text());

@@ -1,6 +1,6 @@
 {
   "name": "local-codex-agent",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "Workbench CLI for macOS with local and remote LLM provider support.",

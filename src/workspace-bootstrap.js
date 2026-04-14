@@ -6,6 +6,7 @@ import { ensureRegistryWorkspace } from './registry.js';
 import { ensureProvidersWorkspace } from './providers/index.js';
 import { scaffoldBuiltInRoles } from './roles.js';
 import { initGlobal as initGlobalWorkspace } from './workspace.js';
+import { initHooks } from './hooks.js';
 
 export async function prepareProjectWorkspace(root, { scaffoldRoles = false } = {}) {
   await initGlobalWorkspace();
@@ -18,5 +19,6 @@ export async function prepareProjectWorkspace(root, { scaffoldRoles = false } = 
   await ensureProvidersWorkspace(root);
   await ensureExtensionsWorkspace(root);
   await ensureRegistryWorkspace(root);
+  await initHooks(root);
   return { memoryRoot };
 }

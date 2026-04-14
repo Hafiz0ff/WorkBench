@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { emitter } from './events.js';
 import { normalizeRoot } from './security.js';
 import { readProjectPolicy } from './policy.js';
 
@@ -913,7 +914,12 @@ export async function trackEvent(projectRoot, event) {
   }
   try {
     await ensureDir(getStatsRoot(root));
-    await appendJsonLine(getEventsFilePath(root), normalized);
+    const tracked = {
+      ...normalized,
+      projectRoot: root,
+    };
+    await appendJsonLine(getEventsFilePath(root), tracked);
+    emitter.emit('workbench:event', tracked);
     return normalized;
   } catch {
     return null;

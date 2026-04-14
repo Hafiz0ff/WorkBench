@@ -27,6 +27,64 @@ const DEFAULT_POLICY = {
     eventsFile: '.local-codex/events.jsonl',
     statsFile: '.local-codex/stats.json',
   },
+  hooks: {
+    enabled: false,
+    telegram: {
+      botToken: '',
+      chatId: '',
+    },
+    rules: [
+      {
+        id: 'hook-auto-done',
+        name: 'Авто-режим завершён',
+        enabled: false,
+        on: ['auto.completed', 'auto.aborted'],
+        channel: 'telegram',
+        message: '✅ *{taskTitle}*\nАвто-режим завершён: {stepsCount} шагов за {duration}\nПровайдер: {provider}/{model}',
+        conditions: {},
+      },
+      {
+        id: 'hook-tests-failed',
+        name: 'Тесты упали',
+        enabled: false,
+        on: ['test.completed'],
+        channel: 'telegram',
+        message: '❌ *Тесты провалились*\n`{command}`\n{summary.failed} из {summary.total} тестов упали\nЗадача: {taskId}',
+        conditions: { status: 'failed' },
+      },
+      {
+        id: 'hook-patch-rolled-back',
+        name: 'Патч откатился',
+        enabled: false,
+        on: ['patch.rolledBack'],
+        channel: 'telegram',
+        message: '⚠️ *Патч откатился*\n{patchId} → {reason}',
+        conditions: {},
+      },
+      {
+        id: 'hook-custom-shell',
+        name: 'Кастомный shell после apply',
+        enabled: false,
+        on: ['patch.applied'],
+        channel: 'shell',
+        command: './scripts/notify.sh',
+        args: ['{patchId}', '{taskId}'],
+        conditions: {},
+      },
+      {
+        id: 'hook-webhook-example',
+        name: 'HTTP webhook на задачу',
+        enabled: false,
+        on: ['task.done'],
+        channel: 'webhook',
+        url: 'https://example.com/workbench/webhook',
+        method: 'POST',
+        headers: { 'X-Secret': 'token' },
+        body: '{"task": "{taskId}", "status": "done"}',
+        conditions: {},
+      },
+    ],
+  },
   testRunner: {
     command: '',
     cwd: null,
@@ -189,6 +247,24 @@ function normalizeStringList(values) {
     .filter(Boolean))];
 }
 
+function normalizeHookRule(rule = {}) {
+  return {
+    id: typeof rule.id === 'string' ? rule.id.trim() : '',
+    name: typeof rule.name === 'string' && rule.name.trim() ? rule.name.trim() : (typeof rule.id === 'string' ? rule.id.trim() : ''),
+    enabled: rule.enabled !== false,
+    on: Array.isArray(rule.on) ? normalizeStringList(rule.on) : [],
+    channel: typeof rule.channel === 'string' ? rule.channel.trim().toLowerCase() : '',
+    message: typeof rule.message === 'string' ? rule.message : '',
+    command: typeof rule.command === 'string' ? rule.command : '',
+    args: Array.isArray(rule.args) ? rule.args.filter((value) => typeof value === 'string') : [],
+    url: typeof rule.url === 'string' ? rule.url : '',
+    method: typeof rule.method === 'string' ? rule.method.trim().toUpperCase() : 'POST',
+    headers: rule.headers && typeof rule.headers === 'object' ? { ...rule.headers } : {},
+    body: typeof rule.body === 'string' ? rule.body : '',
+    conditions: rule.conditions && typeof rule.conditions === 'object' ? { ...rule.conditions } : {},
+  };
+}
+
 function normalizeApprovalMode(value) {
   const mode = String(value || DEFAULT_POLICY.approvalMode).trim().toLowerCase();
   if (mode === 'strict' || mode === 'manual' || mode === 'on-request' || mode === 'review' || mode === 'auto-safe' || mode === 'auto' || mode === 'auto-with-tests') {
@@ -248,6 +324,18 @@ function normalizePolicy(policy = {}) {
       statsFile: typeof policy.stats?.statsFile === 'string' && policy.stats.statsFile.trim()
         ? policy.stats.statsFile.trim()
         : DEFAULT_POLICY.stats.statsFile,
+    },
+    hooks: {
+      ...DEFAULT_POLICY.hooks,
+      ...(policy.hooks || {}),
+      telegram: {
+        ...DEFAULT_POLICY.hooks.telegram,
+        ...(policy.hooks?.telegram || {}),
+      },
+      rules: Array.isArray(policy.hooks?.rules) && policy.hooks.rules.length
+        ? policy.hooks.rules.map(normalizeHookRule)
+        : DEFAULT_POLICY.hooks.rules.map(normalizeHookRule),
+      enabled: policy.hooks?.enabled === true,
     },
     testRunner: {
       ...DEFAULT_POLICY.testRunner,

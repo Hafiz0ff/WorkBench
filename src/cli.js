@@ -127,6 +127,15 @@ import {
   refreshStats,
 } from './stats.js';
 import {
+  addHook,
+  getHookHistory as getHooksHistory,
+  initHooks,
+  listHooks,
+  setHookEnabled,
+  setupTelegramHook,
+  testHook,
+} from './hooks.js';
+import {
   appendMessage as appendConversationMessage,
   clearHistory as clearConversationHistory,
   createMessageId,
@@ -239,6 +248,50 @@ function parseOptions(argv) {
     }
     if (value === '--request') {
       options.request = argv[++i];
+      continue;
+    }
+    if (value === '--name') {
+      options.name = argv[++i];
+      continue;
+    }
+    if (value === '--id') {
+      options.id = argv[++i];
+      continue;
+    }
+    if (value === '--channel') {
+      options.channel = argv[++i];
+      continue;
+    }
+    if (value === '--on') {
+      options.on = argv[++i];
+      continue;
+    }
+    if (value === '--message') {
+      options.message = argv[++i];
+      continue;
+    }
+    if (value === '--command') {
+      options.command = argv[++i];
+      continue;
+    }
+    if (value === '--url') {
+      options.url = argv[++i];
+      continue;
+    }
+    if (value === '--method') {
+      options.method = argv[++i];
+      continue;
+    }
+    if (value === '--body') {
+      options.body = argv[++i];
+      continue;
+    }
+    if (value === '--token') {
+      options.token = argv[++i];
+      continue;
+    }
+    if (value === '--chat-id') {
+      options.chatId = argv[++i];
       continue;
     }
     if (value === '--summary') {
@@ -1153,6 +1206,132 @@ async function handleProviderCommand(subcommand, options, t, locale) {
         : t('provider.healthFailed', { reason: entry.health.message || t('common.notSet') });
       console.log(`${entry.name}: ${label}`);
     }
+    return;
+  }
+
+  printUsage(t);
+}
+
+function formatHookSummary(hook) {
+  const enabled = hook.enabled ? '✅' : '⏸';
+  const events = (hook.on || []).join(', ') || '—';
+  const conditions = hook.conditions ? ` [${hook.conditions}]` : '';
+  return `${enabled}  ${String(hook.id || '').padEnd(22)} ${String(hook.channel || '—').padEnd(8)} ${events}${conditions}`;
+}
+
+async function promptHookInput(question) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(`Интерактивный ввод недоступен: ${question}`);
+  }
+  const rl = readline.createInterface({ input, output });
+  try {
+    const answer = await rl.question(`${question} `);
+    return String(answer || '').trim();
+  } finally {
+    rl.close();
+  }
+}
+
+async function handleHooksCommand(subcommand, options, t) {
+  const projectRoot = process.cwd();
+  await ensureProjectPolicy(projectRoot);
+  await initHooks(projectRoot);
+
+  if (subcommand === 'list') {
+    const hooks = await listHooks(projectRoot);
+    console.log('Хуки');
+    console.log('──────────────────────────────────────────────────────');
+    for (const hook of hooks) {
+      console.log(formatHookSummary(hook));
+    }
+    if (!hooks.length) {
+      console.log('—');
+    }
+    return;
+  }
+
+  if (subcommand === 'test') {
+    const hookId = options._[0];
+    if (!hookId) {
+      throw new Error('Не указан ID хука.');
+    }
+    console.log(`Отправляю тестовое событие в ${hookId}...`);
+    const results = await testHook(projectRoot, hookId);
+    if (!results.length) {
+      console.log('⚠️ Хук не сработал.');
+      return;
+    }
+    for (const result of results) {
+      console.log(`${result.status === 'sent' ? '✅' : '❌'} ${result.channel} ${result.durationMs || 0}мс${result.error ? ` ${result.error}` : ''}`);
+    }
+    return;
+  }
+
+  if (subcommand === 'setup') {
+    const channel = String(options._[0] || '').trim().toLowerCase();
+    if (channel !== 'telegram') {
+      throw new Error('Поддерживается только `app hooks setup telegram`.');
+    }
+    const botToken = options.token || await promptHookInput('Введите Bot Token:');
+    const chatId = options.chatId || await promptHookInput('Введите Chat ID:');
+    await setupTelegramHook(projectRoot, { botToken, chatId, enable: true });
+    const hooks = await listHooks(projectRoot);
+    const telegramHook = hooks.find((hook) => hook.channel === 'telegram');
+    if (telegramHook) {
+      console.log('Отправляю тестовое сообщение...');
+      await testHook(projectRoot, telegramHook.id);
+    }
+    console.log('✅ Telegram настроен. Токен сохранён в ~/.workbench/secrets.json');
+    console.log('policy.json обновлён.');
+    return;
+  }
+
+  if (subcommand === 'enable' || subcommand === 'disable') {
+    const hookId = options._[0];
+    if (!hookId) {
+      throw new Error('Не указан ID хука.');
+    }
+    await setHookEnabled(projectRoot, hookId, subcommand === 'enable');
+    console.log(`Хук ${hookId} ${subcommand === 'enable' ? 'включён' : 'выключен'}.`);
+    return;
+  }
+
+  if (subcommand === 'history') {
+    const history = await getHooksHistory(projectRoot, { limit: options.limit || 10 });
+    for (const entry of history) {
+      const ts = formatDate(entry.ts);
+      const icon = entry.status === 'sent' ? '✅' : '❌';
+      console.log(`${ts}  ${entry.hookId}  ${entry.channel}  ${icon} ${entry.status} ${entry.durationMs ? `${entry.durationMs}мс` : ''}${entry.error ? ` ${entry.error}` : ''}`.trim());
+    }
+    if (!history.length) {
+      console.log('История хука пуста.');
+    }
+    return;
+  }
+
+  if (subcommand === 'add') {
+    const channel = String(options.channel || await promptHookInput('Канал? [telegram/shell/webhook]:')).trim().toLowerCase();
+    const onText = String(options.on || await promptHookInput('События? (через запятую):')).trim();
+    const message = String(options.message || await promptHookInput('Сообщение:')).trim();
+    const hookId = String(options.id || await promptHookInput('ID хука:')).trim();
+    const name = String(options.name || await promptHookInput('Название:')).trim() || hookId;
+    const nextHook = {
+      id: hookId,
+      name,
+      enabled: true,
+      on: onText.split(',').map((value) => value.trim()).filter(Boolean),
+      channel,
+      message,
+      command: options.command || '',
+      args: Array.isArray(options.args) ? options.args : [],
+      url: options.url || '',
+      method: options.method || 'POST',
+      headers: {},
+      body: options.body || '',
+      conditions: {},
+    };
+    await addHook(projectRoot, nextHook);
+    console.log('Хук добавлен и включён.');
     return;
   }
 
@@ -2734,6 +2913,11 @@ async function main() {
 
   if (command === 'server') {
     await handleServerCommand(subcommand, options, t, locale);
+    return;
+  }
+
+  if (command === 'hooks') {
+    await handleHooksCommand(subcommand, options, t);
     return;
   }
 

@@ -11,6 +11,8 @@ const state = {
   patchHistory: [],
   testsHistory: [],
   stats: null,
+  hooks: [],
+  hookHistory: [],
   providers: [],
   roles: [],
   workspaces: [],
@@ -31,6 +33,7 @@ const sectionMeta = {
   patches: { label: 'Патчи', icon: '≡', subtitle: 'pending diff' },
   tests: { label: 'Тесты', icon: '✓', subtitle: 'прогоны и логи' },
   stats: { label: 'Статистика', icon: '✦', subtitle: 'аналитика использования' },
+  hooks: { label: 'Хуки', icon: '⚑', subtitle: 'уведомления и алерты' },
   memory: { label: 'Память', icon: '◫', subtitle: 'project context' },
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
   roles: { label: 'Роли', icon: '◎', subtitle: 'profiles' },
@@ -346,6 +349,7 @@ function navMarkup() {
     patches: state.patchHistory.length,
     tests: state.testsHistory.length,
     stats: state.stats ? 1 : 0,
+    hooks: state.hooks.length,
     memory: state.memory?.summaries?.length || 0,
     providers: state.providers.length,
     roles: state.roles.length,
@@ -827,6 +831,91 @@ function renderProviders() {
   );
 }
 
+function renderHooks() {
+  const selectedHook = state.hooks.find((hook) => hook.id === state.selectedHookId) || state.hooks[0] || null;
+  return sectionWrapper(
+    'Хуки',
+    'Event hooks для Telegram, shell-команд и HTTP webhook без показа секретов.',
+    buttonMarkup('Обновить хуки', 'refresh-hooks', '', 'primary'),
+    `
+      <div class="grid split">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Список хуков</h2></div>
+          <div class="card-body">
+            ${state.hooks.length ? `
+              <div class="list">
+                ${state.hooks.map((hook) => `
+                  <button class="list-item ${hook.id === selectedHook?.id ? 'selected' : ''}" data-action="select-hook" data-hook-id="${escapeHtml(hook.id)}">
+                    <div class="list-main">
+                      <div class="list-title">${escapeHtml(hook.name || hook.id)}</div>
+                      <div class="list-subtitle">${escapeHtml(hook.channel)} · ${escapeHtml((hook.on || []).join(', '))}${hook.conditions ? ` · ${escapeHtml(hook.conditions)}` : ''}</div>
+                    </div>
+                    <div class="list-meta">
+                      <span class="tiny-badge ${hook.enabled ? 'ok' : 'warn'}">${hook.enabled ? 'вкл' : 'выкл'}</span>
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            ` : emptyState('Хуки не настроены', 'Добавьте правила через `app hooks add` или настройте Telegram через CLI.')}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">${escapeHtml(selectedHook?.name || 'Выберите хук')}</h2>
+            <div class="actions">
+              ${selectedHook ? `
+                <button class="button" data-action="${selectedHook.enabled ? 'disable-hook' : 'enable-hook'}" data-hook-id="${escapeHtml(selectedHook.id)}">${selectedHook.enabled ? 'Выключить' : 'Включить'}</button>
+                <button class="button primary" data-action="test-hook" data-hook-id="${escapeHtml(selectedHook.id)}">Тест</button>
+              ` : ''}
+            </div>
+          </div>
+          <div class="card-body">
+            ${selectedHook ? `
+              <div class="grid two-up">
+                ${metricCard('Канал', selectedHook.channel || '—', selectedHook.enabled ? 'активен' : 'выключен')}
+                ${metricCard('События', (selectedHook.on || []).join(', ') || '—', selectedHook.conditions || 'без фильтров')}
+              </div>
+              <div class="card compact" style="margin-top: 12px;">
+                <div class="metric">
+                  <div class="metric-label">Сообщение</div>
+                  <div class="metric-sub" style="white-space: pre-wrap;">${escapeHtml(selectedHook.message || '—')}</div>
+                </div>
+              </div>
+              <div class="card compact" style="margin-top: 12px;">
+                <div class="metric">
+                  <div class="metric-label">Telegram</div>
+                  <div class="metric-value">${selectedHook.telegramConfigured ? 'настроен' : 'не настроен'}</div>
+                  <div class="metric-sub">Токен не показывается в UI</div>
+                </div>
+              </div>
+            ` : emptyState('Выберите хук', 'Тут появятся настройки, тест и последние диспатчи.')}
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <div class="card-header"><h2 class="card-title">История диспатчей</h2></div>
+        <div class="card-body">
+          ${state.hookHistory.length ? `
+            <div class="list">
+              ${state.hookHistory.map((entry) => `
+                <div class="list-item">
+                  <div class="list-main">
+                    <div class="list-title">${escapeHtml(formatDate(entry.ts))} · ${escapeHtml(entry.hookId)}</div>
+                    <div class="list-subtitle">${escapeHtml(entry.channel)} · ${escapeHtml(entry.event)}${entry.error ? ` · ${escapeHtml(entry.error)}` : ''}</div>
+                  </div>
+                  <div class="list-meta">
+                    <span class="tiny-badge ${entry.status === 'sent' ? 'ok' : 'danger'}">${escapeHtml(entry.status)}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : emptyState('История пуста', 'После срабатывания хуков здесь появятся последние диспатчи.')}
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderRoles() {
   return sectionWrapper(
     'Роли',
@@ -963,6 +1052,8 @@ function renderMain() {
       return renderMemory();
     case 'providers':
       return renderProviders();
+    case 'hooks':
+      return renderHooks();
     case 'roles':
       return renderRoles();
     case 'workspaces':
@@ -1008,7 +1099,7 @@ function render() {
 }
 
 async function loadProjectData() {
-  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, providers, roles, workspaces] = await Promise.all([
+  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, providers, hooks, hookHistory, roles, workspaces] = await Promise.all([
     apiGet('/api/v1/project/status'),
     apiGet('/api/v1/project/memory'),
     apiGet('/api/v1/tasks'),
@@ -1017,6 +1108,8 @@ async function loadProjectData() {
     apiGet('/api/v1/tests/history?limit=20'),
     apiGet('/api/v1/stats'),
     apiGet('/api/v1/providers'),
+    apiGet('/api/v1/hooks'),
+    apiGet('/api/v1/hooks/history?limit=10'),
     apiGet('/api/v1/roles'),
     apiGet('/api/v1/workspaces'),
   ]);
@@ -1029,6 +1122,8 @@ async function loadProjectData() {
   state.testsHistory = testsHistory.runs || [];
   state.stats = stats || null;
   state.providers = providers.providers || [];
+  state.hooks = hooks.hooks || [];
+  state.hookHistory = hookHistory.history || [];
   state.roles = roles.roles || [];
   state.workspaces = workspaces.workspaces || [];
 
@@ -1042,6 +1137,9 @@ async function loadProjectData() {
   }
   if (!state.selectedTestRunId && state.testsHistory.length) {
     state.selectedTestRunId = state.testsHistory[0].runId;
+  }
+  if (!state.selectedHookId && state.hooks.length) {
+    state.selectedHookId = state.hooks[0].id;
   }
   state.currentWorkspace = state.workspaces.find((item) => item.current) || null;
 
@@ -1127,6 +1225,25 @@ async function handleAction(action, target) {
       state.statusMessage = 'Провайдер переключён.';
       await reloadView();
       return;
+    case 'select-hook':
+      state.selectedHookId = target.dataset.hookId;
+      render();
+      return;
+    case 'enable-hook':
+      await apiPost(`/api/v1/hooks/${encodeURIComponent(target.dataset.hookId)}/enable`, {});
+      state.statusMessage = 'Хук включён.';
+      await reloadView();
+      return;
+    case 'disable-hook':
+      await apiPost(`/api/v1/hooks/${encodeURIComponent(target.dataset.hookId)}/disable`, {});
+      state.statusMessage = 'Хук выключен.';
+      await reloadView();
+      return;
+    case 'test-hook':
+      await apiPost(`/api/v1/hooks/${encodeURIComponent(target.dataset.hookId)}/test`, {});
+      state.statusMessage = 'Тест хука отправлен.';
+      await reloadView();
+      return;
     case 'use-role':
       await apiPost(`/api/v1/roles/${encodeURIComponent(target.dataset.role)}/use`);
       state.statusMessage = 'Роль активирована.';
@@ -1171,6 +1288,9 @@ async function handleAction(action, target) {
       state.statusMessage = 'Статистика обновлена.';
       await reloadView();
       return;
+    case 'refresh-hooks':
+      await reloadView('Хуки обновлены.');
+      return;
     case 'refresh-all':
       await reloadView('Данные обновлены.');
       return;
@@ -1200,11 +1320,20 @@ function connectEvents() {
   };
   source.addEventListener('task:updated', refresh);
   source.addEventListener('patch:new', refresh);
+  source.addEventListener('patch.applied', refresh);
+  source.addEventListener('patch.rejected', refresh);
+  source.addEventListener('patch.rolledBack', refresh);
   source.addEventListener('test:completed', refresh);
+  source.addEventListener('test.completed', refresh);
   source.addEventListener('auto:step', refresh);
+  source.addEventListener('auto.completed', refresh);
+  source.addEventListener('auto.aborted', refresh);
+  source.addEventListener('role.used', refresh);
+  source.addEventListener('provider.request', refresh);
   source.addEventListener('project:refreshed', refresh);
   source.addEventListener('workspace:updated', refresh);
   source.addEventListener('stats:updated', refresh);
+  source.addEventListener('workbench:event', refresh);
 }
 
 app.addEventListener('click', async (event) => {

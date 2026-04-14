@@ -7,6 +7,7 @@
 - [Phase 4](./phase-4/tz.md) - Web UI / local dashboard - completed
 - [Phase 5](./phase-5/tz.md) - Workspace / multi-project mode - completed
 - [Phase 6](./phase-6/tz.md) - Analytics and usage statistics - completed
+- [Phase 7](./phase-7/tz.md) - Event Hooks / Telegram notifications - completed
 
 ## Status
 
@@ -17,4 +18,5 @@
 - Phase 4: completed
 - Phase 5: completed
 - Phase 6: completed
+- Phase 7: completed
 - Documentation is append-only.
