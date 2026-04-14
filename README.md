@@ -634,6 +634,32 @@ Current release:
 - Changelog: `CHANGELOG.md`
 - Сводка: Extension SDK, permissions плагинов и custom commands
 
+Version history at a glance:
+
+- `1.0.0` - first public release: macOS GUI, Ollama CLI engine, project memory, tasks, patches, policy, registry
+- `1.0.1` - CI loop and test runner foundation
+- `1.1.0` - local web dashboard and SSE live updates
+- `1.2.0` - global workspace registry and project switching
+- `1.3.0` - analytics, stats, and usage reporting
+- `1.4.0` - hooks, Telegram, shell, and webhook notifications
+- `2.0.0` - unified multi-provider runtime
+- `2.1.0` - token budget and usage limits
+- `2.2.0` - semantic vector search and memory indexing
+- `2.3.0` - Extension SDK, plugin permissions, and custom commands
+
+История версий вкратце:
+
+- `1.0.0` - первый публичный релиз: macOS GUI, Ollama CLI engine, project memory, tasks, patches, policy, registry
+- `1.0.1` - основа CI loop и test runner
+- `1.1.0` - локальный web dashboard и SSE-обновления
+- `1.2.0` - глобальный workspace registry и переключение проектов
+- `1.3.0` - аналитика, stats и usage reporting
+- `1.4.0` - hooks, Telegram, shell и webhook-уведомления
+- `2.0.0` - unified multi-provider runtime
+- `2.1.0` - token budget и лимиты использования
+- `2.2.0` - semantic vector search и memory indexing
+- `2.3.0` - Extension SDK, permissions плагинов и custom commands
+
 Release preparation scripts live in `scripts/`:
 
 - `scripts/build_macos_app.sh`
