@@ -620,6 +620,20 @@ Supported GUI flows:
 <a id="release"></a>
 ## Release
 
+Current release:
+
+- WorkBench `2.3.0`
+- Release notes: `docs/release-notes-2.3.0.md`
+- Changelog: `CHANGELOG.md`
+- Summary: Extension SDK, plugin permissions, and custom commands
+
+Текущий релиз:
+
+- WorkBench `2.3.0`
+- Release notes: `docs/release-notes-2.3.0.md`
+- Changelog: `CHANGELOG.md`
+- Сводка: Extension SDK, permissions плагинов и custom commands
+
 Release preparation scripts live in `scripts/`:
 
 - `scripts/build_macos_app.sh`
