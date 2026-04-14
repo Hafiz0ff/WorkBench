@@ -12,6 +12,7 @@
 - [Highlights / Возможности](#highlights)
 - [Screenshots / Скриншоты](#screenshots)
 - [Quick Start / Быстрый старт](#quick-start)
+- [How to use WorkBench / Как работать](#workflow)
 - [Drag & Drop / Перетаскивание папки](#drag-drop)
 - [Workspace / Воркспейс](#workspace)
 - [Core Commands / Основные команды](#core-commands)
@@ -70,6 +71,8 @@ Workbench также включает Extension SDK для локальных п
 
 <a id="screenshots"></a>
 ## Screenshots / Скриншоты
+
+These screenshots are generated from the current native macOS app UI. Regenerate them with `GENERATE_README_SCREENSHOTS=1 ./scripts/capture_readme_screenshots.sh` whenever the GUI changes.
 
 Workbench is ready as soon as a project opens. Quick tour below.
 
@@ -182,6 +185,29 @@ workbench
 ```
 
 После открытия проекта первый экран показывает composer задачи, чтобы можно было сразу начать работу.
+
+<a id="workflow"></a>
+## How to use WorkBench / Как работать
+
+The usual flow is simple:
+
+1. Open a project with `app start /path/to/project` or `workbench ~/path/to/project`.
+2. Pick the active provider, model, and role if the default workspace state is not what you need.
+3. Describe the work in the project composer or create a task explicitly with `app task create`.
+4. Let WorkBench plan and execute changes with `app task auto` when the work should be decomposed automatically.
+5. Review patches and tests with `app patch status`, `app patch apply`, `app test run`, `app budget`, and `app stats`.
+6. Use `app search`, `app index`, `app hooks`, and `app extensions` when you need semantic search, automation, notifications, or plugin behavior.
+7. Start the browser dashboard with `app server start --open` if you want the same project state in a local web UI.
+
+Обычный рабочий цикл выглядит так:
+
+1. Откройте проект через `app start /path/to/project` или `workbench ~/path/to/project`.
+2. Выберите нужный провайдер, модель и роль, если текущее состояние workspace не подходит.
+3. Опишите работу в composer проекта или создайте задачу явно через `app task create`.
+4. Используйте `app task auto`, если задачу нужно разбить и выполнить автоматически.
+5. Проверяйте патчи и тесты через `app patch status`, `app patch apply`, `app test run`, `app budget` и `app stats`.
+6. Для семантического поиска, автоматизаций, уведомлений и плагинов используйте `app search`, `app index`, `app hooks` и `app extensions`.
+7. Запустите browser dashboard через `app server start --open`, если нужен тот же state проекта в веб-интерфейсе.
 
 <a id="workspace"></a>
 ## Workspace / Воркспейс
