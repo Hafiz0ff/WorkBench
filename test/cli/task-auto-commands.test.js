@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
@@ -38,15 +39,50 @@ async function createTempProject() {
   return root;
 }
 
+async function startOllamaMock() {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/api/chat') {
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(`${JSON.stringify({
+        message: {
+          content: JSON.stringify([
+            {
+              stepId: 'step-1',
+              title: 'Update auth flow',
+              description: 'Refactor auth flow',
+              files: ['src/auth.js'],
+            },
+          ]),
+        },
+        done: true,
+      })}\n`);
+      return;
+    }
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ models: [{ name: 'qwen2.5-coder:14b' }] }));
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  return {
+    server,
+    host: `http://127.0.0.1:${port}`,
+  };
+}
+
 test('task auto dry-run shows a plan without creating run state', async () => {
   const root = await createTempProject();
+  const mock = await startOllamaMock();
   const task = await createTask(root, {
     title: 'Auto dry run',
     userRequest: 'Проверить auto dry-run',
     summary: 'Проверка команд auto',
   });
 
-  const mockImport = new URL('../../test/support/mock-provider-fetch.mjs', import.meta.url).href;
   const result = await execFileAsync(process.execPath, [
     CLI_PATH,
     'task',
@@ -60,20 +96,7 @@ test('task auto dry-run shows a plan without creating run state', async () => {
     env: {
       ...process.env,
       APP_LOCALE: 'ru',
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : ''}--import=${new URL('../../test/support/mock-provider-fetch.mjs', import.meta.url).href}`,
-      MOCK_OLLAMA_CHAT_RESPONSE: `${JSON.stringify({
-        message: {
-          content: JSON.stringify([
-            {
-              stepId: 'step-1',
-              title: 'Update auth flow',
-              description: 'Refactor auth flow',
-              files: ['src/auth.js'],
-            },
-          ]),
-        },
-        done: true,
-      })}\n`,
+      OLLAMA_HOST: mock.host,
     },
     maxBuffer: 1024 * 1024,
   });
@@ -81,6 +104,7 @@ test('task auto dry-run shows a plan without creating run state', async () => {
   assert.match(result.stdout.toString(), /План auto run:/);
   assert.match(result.stdout.toString(), /1 шаг|шагов/);
   await assert.rejects(() => readFile(path.join(task.folderPath, 'auto-run.json'), 'utf8'));
+  await new Promise((resolve) => mock.server.close(resolve));
 });
 
 test('task run-status, abort, and runs use on-disk auto run state', async () => {

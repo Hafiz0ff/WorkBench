@@ -47,7 +47,10 @@ import {
 import {
   getActiveProviderSelection,
   getContextWindowConfig,
+  healthCheck as healthCheckProviders,
   listProviderSummaries,
+  listProviderModels,
+  setProviderModel,
   useProvider,
 } from './providers/index.js';
 import {
@@ -480,10 +483,19 @@ function serializeProviderSummary(entry) {
     name: entry.name,
     enabled: Boolean(entry.enabled),
     selected: Boolean(entry.selected),
+    active: Boolean(entry.selected),
+    fallback: Boolean(entry.fallback),
+    model: entry.model || null,
     defaultModel: entry.defaultModel || null,
     baseUrl: entry.baseUrl || null,
     apiKeySet: Boolean(entry.apiKeySet),
     health: entry.health || null,
+    models: Array.isArray(entry.models) ? entry.models.map((model) => ({
+      id: model?.id || model,
+      name: model?.name || model?.id || String(model || ''),
+      contextWindow: Number.isFinite(Number(model?.contextWindow)) ? Number(model.contextWindow) : null,
+      supportsStreaming: Boolean(model?.supportsStreaming),
+    })) : [],
   };
 }
 
@@ -962,22 +974,34 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
   if (pathname === '/api/v1/providers' && req.method === 'GET') {
     const summaries = await listProviderSummaries(projectRoot);
     jsonResponse(res, 200, {
-      defaultProvider: summaries.defaultProvider,
+      activeProvider: summaries.activeProvider,
+      fallbackProvider: summaries.fallbackProvider,
       providers: summaries.providers.map(serializeProviderSummary),
     });
     return;
   }
 
   if (pathname === '/api/v1/providers/health' && req.method === 'GET') {
-    const summaries = await listProviderSummaries(projectRoot);
+    const summaries = await healthCheckProviders(projectRoot);
     jsonResponse(res, 200, {
-      results: summaries.providers.map((provider) => ({
-        name: provider.name,
-        ok: provider.health?.ok || false,
-        message: provider.health?.message || '',
-        enabled: provider.enabled,
-      })),
+      results: summaries,
     });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/providers/') && pathname.endsWith('/health') && req.method === 'GET') {
+    const segments = pathname.split('/').filter(Boolean);
+    const providerName = decodeURIComponent(segments[3] || '');
+    const result = await healthCheckProviders(projectRoot, [providerName]);
+    jsonResponse(res, 200, { result: result[0] || null });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/providers/') && pathname.endsWith('/models') && req.method === 'GET') {
+    const segments = pathname.split('/').filter(Boolean);
+    const providerName = decodeURIComponent(segments[3] || '');
+    const provider = await listProviderModels(projectRoot, providerName);
+    jsonResponse(res, 200, { models: provider });
     return;
   }
 
@@ -1029,12 +1053,26 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
   if (pathname.startsWith('/api/v1/providers/') && pathname.endsWith('/use') && req.method === 'POST') {
     const segments = pathname.split('/').filter(Boolean);
     const providerName = decodeURIComponent(segments[3] || '');
-    const provider = await useProvider(projectRoot, providerName);
+    const body = await readJsonBody(req).catch(() => ({}));
+    const provider = await useProvider(projectRoot, providerName, { model: body.model || null });
     runtime.send('project:refreshed', { provider: provider.name });
     jsonResponse(res, 200, {
       ok: true,
       provider: provider.name,
-      model: provider.defaultModel,
+      model: body.model || provider.defaultModel,
+    });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/providers/') && pathname.endsWith('/model') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const providerName = decodeURIComponent(segments[3] || '');
+    const body = await readJsonBody(req).catch(() => ({}));
+    const provider = await setProviderModel(projectRoot, providerName, body.model || null);
+    jsonResponse(res, 200, {
+      ok: true,
+      provider: providerName,
+      model: provider.model || provider.defaultModel || null,
     });
     return;
   }

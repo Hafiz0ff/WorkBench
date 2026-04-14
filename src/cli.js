@@ -81,7 +81,10 @@ import {
   getContextWindowConfig,
   getProvider,
   listProviderSummaries,
+  listProviderModels,
+  setProviderFallback,
   setProviderApiKey,
+  setProviderModel,
   useProvider,
 } from './providers/index.js';
 import {
@@ -733,7 +736,7 @@ function formatProviderHealthLabel(t, health) {
   if (health.ok) {
     return t('provider.healthOk');
   }
-  return t('provider.healthFailed', { reason: health.message || t('common.notSet') });
+  return t('provider.healthFailed', { reason: health.error || health.message || t('common.notSet') });
 }
 
 function getTaskFolderPath(projectRoot, task) {
@@ -949,7 +952,7 @@ async function loadConversationBundle(projectRoot, task, { provider, model, loca
 function printProviderSummary(entry, t) {
   console.log(`${entry.selected ? '●' : '◦'} ${entry.name}`);
   console.log(`  ${t('provider.status')}: ${formatProviderStatusLabel(t, entry.enabled)}`);
-  console.log(`  ${t('provider.defaultModel')}: ${entry.defaultModel || t('common.notSet')}`);
+  console.log(`  ${t('provider.defaultModel')}: ${entry.model || entry.defaultModel || t('common.notSet')}`);
   console.log(`  ${t('provider.health')}: ${formatProviderHealthLabel(t, entry.health)}`);
   if (entry.baseUrl) {
     console.log(`  ${t('provider.baseUrl')}: ${entry.baseUrl}`);
@@ -1164,7 +1167,10 @@ async function handleProviderCommand(subcommand, options, t, locale) {
   if (subcommand === 'list') {
     const catalog = await listProviderSummaries(projectRoot);
     console.log(t('provider.listTitle'));
-    console.log(t('provider.defaultLabel', { provider: catalog.defaultProvider }));
+    console.log(t('provider.defaultLabel', { provider: catalog.activeProvider || catalog.defaultProvider }));
+    if (catalog.fallbackProvider) {
+      console.log(t('provider.fallbackLabel', { provider: catalog.fallbackProvider }));
+    }
     for (const entry of catalog.providers) {
       printProviderSummary(entry, t);
       console.log('');
@@ -1177,8 +1183,8 @@ async function handleProviderCommand(subcommand, options, t, locale) {
     if (!name) {
       throw new Error(t('common.missingProviderName'));
     }
-    const provider = await useProvider(projectRoot, name);
-    console.log(t('provider.used', { provider: provider.name, model: provider.defaultModel }));
+    const provider = await useProvider(projectRoot, name, { model: options.model || null });
+    console.log(t('provider.used', { provider: provider.name, model: options.model || provider.defaultModel }));
     return;
   }
 
@@ -1197,15 +1203,61 @@ async function handleProviderCommand(subcommand, options, t, locale) {
     return;
   }
 
+  if (subcommand === 'setup') {
+    const name = options._[0];
+    if (!name) {
+      throw new Error(t('common.missingProviderName'));
+    }
+    const key = options.token || await promptHookInput(`Введите API-ключ для ${name}:`);
+    const model = options.model || await promptHookInput(`Введите модель [${t('common.notSet')}]:`);
+    const provider = await setProviderApiKey(projectRoot, name, key);
+    if (model) {
+      await setProviderModel(projectRoot, name, model);
+    }
+    await useProvider(projectRoot, name, { model: model || provider.defaultModel });
+    console.log(t('provider.keySaved', { provider: name }));
+    console.log(t('provider.providerEnabled', { provider: name, model: model || provider.defaultModel }));
+    return;
+  }
+
   if (subcommand === 'health') {
     const catalog = await listProviderSummaries(projectRoot);
     console.log(t('provider.healthTitle'));
-    for (const entry of catalog.providers.filter((provider) => provider.enabled)) {
+    const target = options._[0] || null;
+    const providers = target ? catalog.providers.filter((provider) => provider.name === target) : catalog.providers.filter((provider) => provider.enabled);
+    for (const entry of providers) {
       const label = entry.health.ok
         ? t('provider.healthOk')
-        : t('provider.healthFailed', { reason: entry.health.message || t('common.notSet') });
+        : t('provider.healthFailed', { reason: entry.health.error || entry.health.message || t('common.notSet') });
       console.log(`${entry.name}: ${label}`);
     }
+    return;
+  }
+
+  if (subcommand === 'models') {
+    const name = options._[0] || null;
+    const provider = await getProvider(projectRoot, name);
+    const models = await provider.listModels();
+    if (!models.length) {
+      console.log(t('provider.noModels', { provider: provider.name }));
+      return;
+    }
+    console.log(t('provider.modelsTitle', { provider: provider.name }));
+    for (const model of models) {
+      const id = model?.id || model;
+      const label = model?.name && model?.name !== id ? `${id} — ${model.name}` : id;
+      console.log(label);
+    }
+    return;
+  }
+
+  if (subcommand === 'fallback') {
+    const name = options._[0];
+    if (!name) {
+      throw new Error(t('common.missingProviderName'));
+    }
+    await setProviderFallback(projectRoot, name);
+    console.log(t('provider.fallbackSet', { provider: name }));
     return;
   }
 
@@ -2886,7 +2938,7 @@ async function main() {
     }
     console.log(t('provider.modelsTitle', { provider: provider.name }));
     for (const model of models) {
-      console.log(model);
+      console.log(model?.id || model);
     }
     return;
   }

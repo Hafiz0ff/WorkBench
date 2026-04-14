@@ -1,148 +1,133 @@
-import { createProviderError, normalizeMessages, withTimeout } from './shared.js';
+import { createProviderError, normalizeMessages } from './shared.js';
+import { requestJson, requestRaw } from './http.js';
 
 const DEFAULT_OLLAMA_HOST = 'http://localhost:11434';
-const REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_MODELS = ['qwen2.5-coder:14b', 'llama3.1', 'mistral', 'phi3'];
 
 function getBaseUrl(config = {}) {
-  return process.env.OLLAMA_HOST || config.baseUrl || DEFAULT_OLLAMA_HOST;
+  return String(process.env.OLLAMA_HOST || config.baseUrl || DEFAULT_OLLAMA_HOST).replace(/\/$/, '');
 }
 
-async function fetchJson(fetchImpl, url, init) {
-  const response = await fetchImpl(url, init);
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw createProviderError('request_failed', `Запрос к Ollama не удался (${response.status}): ${body || response.statusText}`);
+function extractText(data) {
+  const message = data?.message?.content;
+  if (typeof message === 'string') {
+    return message;
   }
-  return response.json();
-}
-
-async function fetchJsonWithTimeout(fetchImpl, url, init) {
-  return withTimeout(fetchJson(fetchImpl, url, init), REQUEST_TIMEOUT_MS, 'Превышено время ожидания ответа Ollama.');
-}
-
-function parseStreamLine(line) {
-  try {
-    return JSON.parse(line);
-  } catch {
-    return null;
+  if (Array.isArray(message)) {
+    return message.map((part) => part?.text || '').filter(Boolean).join('');
   }
-}
-
-function chunkFromOllamaEvent(event) {
-  if (!event || typeof event !== 'object') {
-    return '';
-  }
-  if (typeof event.response === 'string') {
-    return event.response;
-  }
-  if (typeof event.message?.content === 'string') {
-    return event.message.content;
-  }
-  if (Array.isArray(event.message?.content)) {
-    return event.message.content
-      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-      .join('');
+  if (typeof data?.response === 'string') {
+    return data.response;
   }
   return '';
 }
 
-export function createProvider(config = {}, deps = {}) {
-  const fetchImpl = deps.fetchImpl || fetch;
-  const baseUrl = getBaseUrl(config);
-  const defaultModel = config.defaultModel || 'qwen2.5-coder:14b';
-  const providerName = 'ollama';
-
-  async function listModels() {
-    const data = await fetchJsonWithTimeout(fetchImpl, `${baseUrl}/api/tags`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-      },
-    });
-    const models = Array.isArray(data.models) ? data.models : [];
-    return models
-      .map((model) => model?.name)
-      .filter((name) => typeof name === 'string' && name.length > 0);
-  }
-
-  async function healthCheck() {
-    try {
-      await listModels();
-      return { ok: true, message: 'ok', code: 'ok' };
-    } catch (error) {
-      if (error?.code === 'timeout') {
-        return { ok: false, message: error.message, code: 'timeout' };
+function parseNdjson(bodyText) {
+  return String(bodyText || '')
+    .replaceAll('\r\n', '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
       }
-      return { ok: false, message: error instanceof Error ? error.message : String(error), code: error?.code || 'request_failed' };
-    }
+    })
+    .filter(Boolean)
+    .map(extractText)
+    .filter(Boolean);
+}
+
+export function createProvider(config = {}, deps = {}) {
+  const providerName = 'ollama';
+  const defaultModel = config.model || config.defaultModel || 'qwen2.5-coder:14b';
+  const baseUrl = getBaseUrl(config);
+
+  async function complete(messages, options = {}) {
+    const response = await requestJson(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        model: options.model || defaultModel,
+        messages: normalizeMessages(messages),
+        stream: false,
+        options: {
+          temperature: options.temperature,
+          num_predict: options.maxTokens,
+        },
+      }),
+      maxRetries: Number(config.maxRetries) || 0,
+      timeoutMs: Number(config.timeout) || 60000,
+    }, deps);
+    const data = response.json || {};
+    return {
+      content: extractText(data),
+      model: options.model || defaultModel,
+      provider: providerName,
+      usage: null,
+      durationMs: 0,
+      raw: data,
+    };
   }
 
-  async function* chat(messages, options = {}) {
-    const model = options.model || defaultModel;
-    const normalizedMessages = normalizeMessages(messages);
-    const response = await fetchImpl(`${baseUrl}/api/chat`, {
+  async function* stream(messages, options = {}) {
+    const response = await requestRaw(`${baseUrl}/api/chat`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({
-        model,
-        messages: normalizedMessages,
+        model: options.model || defaultModel,
+        messages: normalizeMessages(messages),
         stream: true,
         options: {
           temperature: options.temperature,
           num_predict: options.maxTokens,
         },
       }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw createProviderError('request_failed', `Запрос к Ollama не удался (${response.status}): ${body || response.statusText}`);
+      maxRetries: Number(config.maxRetries) || 0,
+      timeoutMs: Number(config.timeout) || 60000,
+    }, deps);
+    for (const chunk of parseNdjson(response.bodyText)) {
+      yield chunk;
     }
+  }
 
-    if (!response.body) {
-      const data = await response.json();
-      const content = chunkFromOllamaEvent(data);
-      if (content) {
-        yield content;
+  async function listModels() {
+    const response = await requestJson(`${baseUrl}/api/tags`, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      maxRetries: Number(config.maxRetries) || 0,
+      timeoutMs: Number(config.timeout) || 60000,
+    }, deps);
+    const models = Array.isArray(response.json?.models) ? response.json.models : [];
+    const normalized = models.map((model) => {
+      const id = String(model?.name || '').trim();
+      if (!id) {
+        return null;
       }
-      return;
-    }
+      return {
+        id,
+        name: model?.display_name || id,
+        contextWindow: null,
+        supportsStreaming: true,
+      };
+    }).filter(Boolean);
+    return normalized.length ? normalized : DEFAULT_MODELS.map((id) => ({
+      id,
+      name: id,
+      contextWindow: null,
+      supportsStreaming: true,
+    }));
+  }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const reader = response.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-        const event = parseStreamLine(trimmed);
-        const content = chunkFromOllamaEvent(event);
-        if (content) {
-          yield content;
-        }
-      }
-    }
-
-    const tail = decoder.decode();
-    const remaining = `${buffer}${tail}`;
-    for (const line of remaining.split('\n').map((entry) => entry.trim()).filter(Boolean)) {
-      const event = parseStreamLine(line);
-      const content = chunkFromOllamaEvent(event);
-      if (content) {
-        yield content;
-      }
+  async function health() {
+    const started = Date.now();
+    try {
+      await listModels();
+      return { ok: true, latencyMs: Date.now() - started, error: null };
+    } catch (error) {
+      return { ok: false, latencyMs: Date.now() - started, error: error?.message || String(error) };
     }
   }
 
@@ -151,10 +136,17 @@ export function createProvider(config = {}, deps = {}) {
     defaultModel,
     enabled: config.enabled !== false,
     baseUrl,
-    async *chat(messages, options) {
-      yield* chat(messages, options);
+    async complete(messages, options) {
+      return complete(messages, options);
     },
+    async *stream(messages, options) {
+      yield* stream(messages, options);
+    },
+    async *chat(messages, options) {
+      yield* stream(messages, options);
+    },
+    health,
+    healthCheck: health,
     listModels,
-    healthCheck,
   };
 }

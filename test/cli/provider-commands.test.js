@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
@@ -22,16 +23,42 @@ async function createTempProject() {
   return root;
 }
 
+async function startOllamaMock() {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        models: [
+          { name: 'qwen2.5-coder:14b' },
+          { name: 'llama3.1:8b' },
+        ],
+      }));
+      return;
+    }
+    if (req.url === '/api/chat') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: { content: 'hello' }, done: true }));
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  return {
+    server,
+    host: `http://127.0.0.1:${port}`,
+  };
+}
+
 test('provider CLI commands work with the active provider', async () => {
   const root = await createTempProject();
-  const mockImport = new URL('../../test/support/mock-provider-fetch.mjs', import.meta.url).href;
+  const workbenchHome = await mkdtemp(path.join(os.tmpdir(), 'local-codex-provider-home-'));
+  const mock = await startOllamaMock();
   const env = {
     ...process.env,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : ''}--import=${mockImport}`,
-    MOCK_OLLAMA_MODELS: JSON.stringify([
-      { name: 'qwen2.5-coder:14b' },
-      { name: 'llama3.1:8b' },
-    ]),
+    WORKBENCH_HOME: workbenchHome,
+    OLLAMA_HOST: mock.host,
     APP_LOCALE: 'ru',
   };
 
@@ -73,5 +100,10 @@ test('provider CLI commands work with the active provider', async () => {
 
   const providersConfig = JSON.parse(await readFile(path.join(root, '.local-codex', 'providers.json'), 'utf8'));
   assert.equal(providersConfig.providers.openai.enabled, true);
-  assert.equal(providersConfig.providers.openai.apiKey, 'sk-test');
+  assert.equal(providersConfig.providers.openai.apiKey, '@secret:openai_api_key');
+
+  const secrets = JSON.parse(await readFile(path.join(workbenchHome, 'secrets.json'), 'utf8'));
+  assert.equal(secrets.openai_api_key, 'sk-test');
+
+  await new Promise((resolve) => mock.server.close(resolve));
 });

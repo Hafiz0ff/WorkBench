@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0
+- Final release of the roadmap: Ollama, OpenAI, Anthropic, and Gemini now share a unified provider registry and fallback flow.
+- Added per-provider model selection, health checks, and secret-backed API key storage.
+- Phase 8 closed the multi-provider story and bumped the release line to WorkBench 2.0.0.
+
 ## 1.4.0
 - Added event hooks with shell, Telegram, and webhook channels.
 - Introduced shared event emitter wiring for stats, hooks, and SSE.

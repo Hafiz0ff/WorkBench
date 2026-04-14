@@ -790,11 +790,43 @@ function renderMemory() {
 }
 
 function renderProviders() {
+  const activeProvider = state.providers.find((provider) => provider.selected)
+    || state.providers[0]
+    || null;
+  const activeModels = activeProvider?.models || [];
   return sectionWrapper(
     'Провайдеры',
     'Переключение между Ollama, OpenAI, Anthropic и Gemini без редактирования файлов вручную.',
     buttonMarkup('Проверить health', 'refresh-all', '', 'primary'),
     `
+      <div class="card" style="margin-bottom: 16px;">
+        <div class="card-header"><h2 class="card-title">Активный провайдер</h2></div>
+        <div class="card-body">
+          <div class="grid two-up">
+            <label class="field">
+              <span class="field-label">Провайдер</span>
+              <select data-action="set-active-provider">
+                ${state.providers.map((provider) => `
+                  <option value="${escapeHtml(provider.name)}" ${provider.selected ? 'selected' : ''}>
+                    ${escapeHtml(provider.name)}${provider.fallback ? ' · fallback' : ''}${provider.enabled ? '' : ' · disabled'}
+                  </option>
+                `).join('')}
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Модель</span>
+              <select data-action="set-provider-model" data-provider="${escapeHtml(activeProvider?.name || '')}">
+                ${(activeModels.length ? activeModels : [{ id: activeProvider?.model || activeProvider?.defaultModel || '—', name: activeProvider?.model || activeProvider?.defaultModel || '—' }]).map((model) => {
+                  const id = model?.id || model;
+                  const label = model?.name && model?.name !== id ? `${id} — ${model.name}` : id;
+                  const selected = id === (activeProvider?.model || activeProvider?.defaultModel);
+                  return `<option value="${escapeHtml(id)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                }).join('')}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
       <div class="grid two-up">
         ${state.providers.map((provider) => `
           <div class="card">
@@ -808,9 +840,9 @@ function renderProviders() {
               <div class="list">
                 ${[
                   ['Статус', provider.enabled ? 'активен' : 'выключен'],
-                  ['Модель', provider.defaultModel || '—'],
+                  ['Модель', provider.model || provider.defaultModel || '—'],
                   ['Base URL', provider.baseUrl || '—'],
-                  ['Health', provider.health?.message || (provider.health?.ok ? 'available' : '—')],
+                  ['Health', provider.health?.error || provider.health?.message || (provider.health?.ok ? 'available' : '—')],
                 ].map(([label, value]) => `
                   <div class="list-item">
                     <div class="list-main">
@@ -819,6 +851,7 @@ function renderProviders() {
                     </div>
                     <div class="list-meta">
                       ${provider.selected ? '<span class="tiny-badge status-ok">active</span>' : ''}
+                      ${provider.fallback ? '<span class="tiny-badge">fallback</span>' : ''}
                     </div>
                   </div>
                 `).join('')}
@@ -1204,6 +1237,18 @@ async function handleAction(action, target) {
       location.hash = state.activeSection;
       render();
       return;
+    case 'set-active-provider':
+      await apiPost(`/api/v1/providers/${encodeURIComponent(target.value)}/use`);
+      state.statusMessage = 'Провайдер переключён.';
+      await reloadView();
+      return;
+    case 'set-provider-model':
+      await apiPost(`/api/v1/providers/${encodeURIComponent(target.dataset.provider)}/model`, {
+        model: target.value,
+      });
+      state.statusMessage = 'Модель обновлена.';
+      await reloadView();
+      return;
     case 'select-task':
       state.selectedTaskId = target.dataset.taskId;
       await loadTaskDetail(state.selectedTaskId);
@@ -1342,6 +1387,22 @@ app.addEventListener('click', async (event) => {
     return;
   }
   event.preventDefault();
+  try {
+    await handleAction(target.dataset.action, target);
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+    render();
+  }
+});
+
+app.addEventListener('change', async (event) => {
+  const target = event.target.closest('[data-action]');
+  if (!target) {
+    return;
+  }
+  if (!['set-active-provider', 'set-provider-model'].includes(target.dataset.action)) {
+    return;
+  }
   try {
     await handleAction(target.dataset.action, target);
   } catch (error) {

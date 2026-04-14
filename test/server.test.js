@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createTask } from '../src/tasks.js';
 import { appendMessage, createMessageId, createSessionId } from '../src/conversation.js';
-import { setProviderApiKey } from '../src/providers/index.js';
+import { DEFAULT_PROVIDER_CONFIG, setProviderApiKey, writeProvidersConfig, readProvidersConfig } from '../src/providers/index.js';
 import { startServer, stopServer } from '../src/server.js';
 import { setCurrentTask } from '../src/tasks.js';
 import { trackEvent } from '../src/stats.js';
@@ -20,6 +21,29 @@ async function cleanup(root) {
   await fs.rm(root, { recursive: true, force: true });
 }
 
+async function startProviderMockServer() {
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/openai/models')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }] }));
+      return;
+    }
+    if (req.url.startsWith('/ollama/api/tags')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ models: [{ name: 'qwen2.5-coder:14b' }] }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${port}`,
+  };
+}
+
 async function startTestServer(root) {
   const { url } = await startServer(root, { port: 0, host: '0.0.0.0', open: false });
   return { url };
@@ -30,7 +54,29 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   const previousHome = process.env.WORKBENCH_HOME;
   const workbenchHome = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-server-home-'));
   process.env.WORKBENCH_HOME = workbenchHome;
+  const providerServer = await startProviderMockServer();
   await setProviderApiKey(root, 'openai', 'sk-test-secret');
+  const providersConfig = await readProvidersConfig(root);
+  providersConfig.providers.openai = {
+    ...providersConfig.providers.openai,
+    enabled: true,
+    baseUrl: `${providerServer.baseUrl}/openai`,
+    model: 'gpt-4o',
+    defaultModel: 'gpt-4o',
+    maxRetries: 0,
+  };
+  providersConfig.providers.ollama = {
+    ...DEFAULT_PROVIDER_CONFIG.providers.ollama,
+    enabled: true,
+    baseUrl: `${providerServer.baseUrl}/ollama`,
+    model: 'qwen2.5-coder:14b',
+    defaultModel: 'qwen2.5-coder:14b',
+    maxRetries: 0,
+  };
+  providersConfig.active = 'openai';
+  providersConfig.default = 'openai';
+  providersConfig.fallback = 'ollama';
+  await writeProvidersConfig(root, providersConfig);
   const task = await createTask(root, {
     title: 'API dashboard task',
     userRequest: 'Build the dashboard',
@@ -72,6 +118,7 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
     await cleanup(root);
     process.env.WORKBENCH_HOME = previousHome;
     await fs.rm(workbenchHome, { recursive: true, force: true });
+    await new Promise((resolve) => providerServer.server.close(resolve));
   });
 
   const status = await fetch(`${url}/api/v1/project/status`).then((response) => response.json());

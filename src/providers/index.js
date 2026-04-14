@@ -3,10 +3,14 @@ import path from 'node:path';
 import { normalizeRoot } from '../security.js';
 import { readProjectState, updateProjectState } from '../memory.js';
 import { createProviderError } from './shared.js';
+import { resolveSecretValue, setSecretValue } from '../secrets.js';
+import { emitter } from '../events.js';
 
 const PROVIDERS_FILE_NAME = 'providers.json';
 const DEFAULT_PROVIDER_NAME = 'ollama';
 const DEFAULT_PROVIDER_CONFIG = {
+  active: DEFAULT_PROVIDER_NAME,
+  fallback: DEFAULT_PROVIDER_NAME,
   default: DEFAULT_PROVIDER_NAME,
   contextWindow: {
     historyMessages: 20,
@@ -16,25 +20,37 @@ const DEFAULT_PROVIDER_CONFIG = {
     ollama: {
       enabled: true,
       baseUrl: 'http://localhost:11434',
+      model: 'qwen2.5-coder:14b',
       defaultModel: 'qwen2.5-coder:14b',
     },
     openai: {
       enabled: false,
-      apiKey: '',
+      apiKey: '@secret:openai_api_key',
       baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
       defaultModel: 'gpt-4o',
+      timeout: 60000,
+      maxRetries: 2,
+      temperature: 0.2,
     },
     anthropic: {
       enabled: false,
-      apiKey: '',
+      apiKey: '@secret:anthropic_api_key',
       baseUrl: 'https://api.anthropic.com',
-      defaultModel: 'claude-3-5-sonnet-20241022',
+      model: 'claude-opus-4-5',
+      defaultModel: 'claude-opus-4-5',
+      timeout: 60000,
+      maxRetries: 2,
+      maxTokens: 16000,
     },
     gemini: {
       enabled: false,
-      apiKey: '',
+      apiKey: '@secret:gemini_api_key',
       baseUrl: 'https://generativelanguage.googleapis.com',
-      defaultModel: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
+      defaultModel: 'gemini-2.5-flash',
+      timeout: 60000,
+      maxRetries: 2,
     },
   },
 };
@@ -76,6 +92,8 @@ function mergeProviderConfig(defaultConfig, storedConfig = {}) {
     };
   }
   return {
+    active: storedConfig.active || storedConfig.default || defaultConfig.active,
+    fallback: storedConfig.fallback || defaultConfig.fallback,
     default: storedConfig.default || defaultConfig.default,
     contextWindow: {
       ...defaultConfig.contextWindow,
@@ -135,7 +153,32 @@ function getProviderConfig(config, name) {
   return config.providers?.[name] || null;
 }
 
-export async function listConfiguredProviderNames(projectRoot) {
+async function resolveProviderApiKey(providerConfig = {}) {
+  const apiKey = providerConfig.apiKey || '';
+  return resolveSecretValue(apiKey);
+}
+
+function normalizeProviderInstance(provider) {
+  if (!provider) {
+    return null;
+  }
+  return {
+    ...provider,
+    complete: provider.complete || provider.chat || null,
+    stream: provider.stream || provider.chat || null,
+    health: provider.health || provider.healthCheck || null,
+    healthCheck: provider.healthCheck || provider.health || null,
+  };
+}
+
+function isFallbackable(error) {
+  if (!error) return false;
+  if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') return true;
+  if (error.status === 429 || error.status === 503) return true;
+  return false;
+}
+
+export async function listProviders(projectRoot) {
   const config = await readProvidersConfig(projectRoot);
   return Object.keys(config.providers);
 }
@@ -146,20 +189,94 @@ export async function getProvider(projectRoot, requestedName = null) {
     readProvidersConfig(root),
     readProjectState(root),
   ]);
-  const providerName = requestedName || state?.selectedProvider || config.default || DEFAULT_PROVIDER_NAME;
+  const providerName = requestedName || state?.selectedProvider || config.active || config.default || DEFAULT_PROVIDER_NAME;
   const providerConfig = getProviderConfig(config, providerName);
   if (!providerConfig) {
     const available = Object.keys(config.providers).join(', ');
     throw createProviderError('provider_not_found', `Провайдер "${providerName}" не найден. Доступны: ${available}`);
   }
-
   const moduleLoader = PROVIDER_MODULE_LOADERS[providerName];
   if (!moduleLoader) {
     throw createProviderError('provider_not_supported', `Провайдер "${providerName}" не поддерживается.`);
   }
 
   const module = await moduleLoader();
-  return module.createProvider(providerConfig, { projectRoot: root });
+  const resolvedConfig = {
+    ...providerConfig,
+    apiKey: await resolveProviderApiKey(providerConfig),
+  };
+  const provider = module.createProvider(resolvedConfig, {
+    projectRoot: root,
+    secretResolver: resolveSecretValue,
+  });
+  return normalizeProviderInstance(provider);
+}
+
+export async function completeWithFallback(projectRoot, messages, options = {}) {
+  const root = normalizeRoot(projectRoot);
+  const config = await readProvidersConfig(root);
+  const state = await readProjectState(root).catch(() => null);
+  const activeName = options.provider || state?.selectedProvider || config.active || config.default || DEFAULT_PROVIDER_NAME;
+  const fallbackName = config.fallback || DEFAULT_PROVIDER_NAME;
+  const provider = await getProvider(root, activeName);
+  try {
+    return await provider.complete(messages, options);
+  } catch (error) {
+    if (!fallbackName || fallbackName === activeName || !isFallbackable(error)) {
+      throw error;
+    }
+    const fallbackProvider = await getProvider(root, fallbackName);
+    emitter.emit('workbench:event', {
+      type: 'provider.fallback',
+      projectRoot: root,
+      from: activeName,
+      to: fallbackName,
+      reason: error?.message || String(error),
+    });
+    return fallbackProvider.complete(messages, options);
+  }
+}
+
+export async function healthCheck(projectRoot, providerNames = null) {
+  const root = normalizeRoot(projectRoot);
+  const config = await readProvidersConfig(root);
+  const names = Array.isArray(providerNames) && providerNames.length
+    ? providerNames
+    : Object.keys(config.providers);
+  const results = [];
+  for (const name of names) {
+    const providerConfig = getProviderConfig(config, name);
+    if (!providerConfig) {
+      results.push({
+        name,
+        ok: false,
+        latencyMs: 0,
+        error: 'provider_not_found',
+        enabled: false,
+      });
+      continue;
+    }
+    const provider = await getProvider(root, name);
+    if (!provider.enabled) {
+      results.push({
+        name,
+        ok: false,
+        latencyMs: 0,
+        error: 'disabled',
+        enabled: false,
+      });
+      continue;
+    }
+    const result = await provider.health();
+    results.push({
+      name,
+      ok: Boolean(result.ok),
+      latencyMs: Number(result.latencyMs) || 0,
+      error: result.error || null,
+      enabled: true,
+    });
+  }
+  return results;
 }
 
 export async function listProviderSummaries(projectRoot) {
@@ -171,27 +288,30 @@ export async function listProviderSummaries(projectRoot) {
   const summaries = [];
   for (const [name, providerConfig] of Object.entries(config.providers)) {
     const provider = await getProvider(root, name);
-    let health = { ok: false, message: 'disabled', code: 'disabled' };
-    if (provider.enabled) {
-      health = await provider.healthCheck();
-    }
+    const health = provider.enabled ? await provider.health() : { ok: false, latencyMs: 0, error: 'disabled' };
+    const models = provider.enabled ? await provider.listModels().catch(() => []) : [];
+    const modelId = providerConfig.model || providerConfig.defaultModel || provider.defaultModel || null;
     summaries.push({
       name,
       enabled: provider.enabled,
+      model: modelId,
       defaultModel: provider.defaultModel,
-      selected: state?.selectedProvider === name,
+      selected: state?.selectedProvider === name || config.active === name,
+      fallback: config.fallback === name,
       baseUrl: provider.baseUrl || providerConfig.baseUrl || null,
       health,
       apiKeySet: Boolean(providerConfig.apiKey),
+      models,
     });
   }
   return {
-    defaultProvider: config.default || DEFAULT_PROVIDER_NAME,
+    activeProvider: config.active || config.default || DEFAULT_PROVIDER_NAME,
+    fallbackProvider: config.fallback || null,
     providers: summaries,
   };
 }
 
-export async function useProvider(projectRoot, providerName) {
+export async function useProvider(projectRoot, providerName, { model = null } = {}) {
   const root = normalizeRoot(projectRoot);
   const config = await readProvidersConfig(root);
   const providerConfig = getProviderConfig(config, providerName);
@@ -200,16 +320,34 @@ export async function useProvider(projectRoot, providerName) {
     throw createProviderError('provider_not_found', `Провайдер "${providerName}" не найден. Доступны: ${available}`);
   }
   const provider = await getProvider(root, providerName);
+  const selectedModel = model || providerConfig.model || provider.defaultModel;
+  const next = {
+    ...config,
+    active: provider.name,
+    default: provider.name,
+    providers: {
+      ...config.providers,
+      [providerName]: {
+        ...providerConfig,
+        model: selectedModel,
+        defaultModel: selectedModel,
+      },
+    },
+  };
+  await writeProvidersConfig(root, next);
   await updateProjectState(root, {
     selectedProvider: provider.name,
-    selectedModel: provider.defaultModel,
+    selectedModel,
   });
   return provider;
 }
 
-export async function setProviderApiKey(projectRoot, providerName, apiKey) {
+export async function setProviderModel(projectRoot, providerName, model) {
   const root = normalizeRoot(projectRoot);
-  const config = await readProvidersConfig(root);
+  const [config, state] = await Promise.all([
+    readProvidersConfig(root),
+    readProjectState(root).catch(() => null),
+  ]);
   const providerConfig = getProviderConfig(config, providerName);
   if (!providerConfig) {
     const available = Object.keys(config.providers).join(', ');
@@ -221,7 +359,38 @@ export async function setProviderApiKey(projectRoot, providerName, apiKey) {
       ...config.providers,
       [providerName]: {
         ...providerConfig,
-        apiKey,
+        model,
+        defaultModel: model,
+      },
+    },
+  };
+  await writeProvidersConfig(root, next);
+  if ((state?.selectedProvider || config.active || config.default) === providerName) {
+    await updateProjectState(root, {
+      selectedProvider: providerName,
+      selectedModel: model,
+    });
+  }
+  return next.providers[providerName];
+}
+
+export async function setProviderApiKey(projectRoot, providerName, apiKey) {
+  const root = normalizeRoot(projectRoot);
+  const config = await readProvidersConfig(root);
+  const providerConfig = getProviderConfig(config, providerName);
+  if (!providerConfig) {
+    const available = Object.keys(config.providers).join(', ');
+    throw createProviderError('provider_not_found', `Провайдер "${providerName}" не найден. Доступны: ${available}`);
+  }
+  const secretKey = `${providerName}_api_key`;
+  await setSecretValue(secretKey, apiKey);
+  const next = {
+    ...config,
+    providers: {
+      ...config.providers,
+      [providerName]: {
+        ...providerConfig,
+        apiKey: `@secret:${secretKey}`,
         enabled: true,
       },
     },
@@ -230,17 +399,33 @@ export async function setProviderApiKey(projectRoot, providerName, apiKey) {
   return next.providers[providerName];
 }
 
+export async function setProviderFallback(projectRoot, providerName) {
+  const root = normalizeRoot(projectRoot);
+  const config = await readProvidersConfig(root);
+  const providerConfig = getProviderConfig(config, providerName);
+  if (!providerConfig) {
+    const available = Object.keys(config.providers).join(', ');
+    throw createProviderError('provider_not_found', `Провайдер "${providerName}" не найден. Доступны: ${available}`);
+  }
+  const next = {
+    ...config,
+    fallback: providerName,
+  };
+  await writeProvidersConfig(root, next);
+  return providerName;
+}
+
 export async function getActiveProviderSelection(projectRoot) {
   const root = normalizeRoot(projectRoot);
   const [config, state] = await Promise.all([
     readProvidersConfig(root),
     readProjectState(root),
   ]);
-  const providerName = state?.selectedProvider || config.default || DEFAULT_PROVIDER_NAME;
+  const providerName = state?.selectedProvider || config.active || config.default || DEFAULT_PROVIDER_NAME;
   const provider = await getProvider(root, providerName);
   return {
     providerName: provider.name,
-    model: state?.selectedModel || provider.defaultModel,
+    model: state?.selectedModel || config.providers?.[providerName]?.model || provider.defaultModel,
   };
 }
 
@@ -250,6 +435,11 @@ export async function getContextWindowConfig(projectRoot) {
     historyMessages: Number(config.contextWindow?.historyMessages) || DEFAULT_PROVIDER_CONFIG.contextWindow.historyMessages,
     summarizeAfter: Number(config.contextWindow?.summarizeAfter) || DEFAULT_PROVIDER_CONFIG.contextWindow.summarizeAfter,
   };
+}
+
+export async function listProviderModels(projectRoot, providerName) {
+  const provider = await getProvider(projectRoot, providerName);
+  return provider.listModels();
 }
 
 export { DEFAULT_PROVIDER_CONFIG, DEFAULT_PROVIDER_NAME };

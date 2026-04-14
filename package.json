@@ -1,6 +1,6 @@
 {
   "name": "local-codex-agent",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Workbench CLI for macOS with local and remote LLM provider support.",
@@ -12,11 +12,6 @@
     "start": "node ./src/cli.js",
     "test": "node --test",
     "models:list": "node ./src/cli.js models list"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.88.0",
-    "@google/genai": "^1.49.0",
-    "openai": "^6.34.0"
   },
   "engines": {
     "node": ">=20"

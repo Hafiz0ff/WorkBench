@@ -10,7 +10,15 @@ async function collectChunks(iterator) {
   return chunks;
 }
 
-test('ollama provider streams chunks and lists models', async () => {
+function jsonResponse(body, status = 200) {
+  return {
+    status,
+    headers: { 'content-type': 'application/json' },
+    bodyText: JSON.stringify(body),
+  };
+}
+
+test('ollama provider completes, streams, lists models and reports health', async () => {
   const requests = [];
   const provider = createOllamaProvider(
     {
@@ -18,43 +26,58 @@ test('ollama provider streams chunks and lists models', async () => {
       defaultModel: 'qwen2.5-coder:14b',
     },
     {
-      fetchImpl: async (url, init) => {
-        requests.push({ url, init });
+      requestImpl: async ({ url, method, body }) => {
+        requests.push({ url, method, body: body ? JSON.parse(body) : null });
         if (url.endsWith('/api/tags')) {
-          return new Response(JSON.stringify({
+          return jsonResponse({
             models: [
               { name: 'qwen2.5-coder:14b' },
               { name: 'llama3.1:8b' },
             ],
-          }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
           });
         }
+        if (url.endsWith('/api/chat') && requests.at(-1)?.body?.stream === true) {
+          return {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+            bodyText: [
+              '{"message":{"content":"Hello "},"done":false}',
+              '{"message":{"content":"world"},"done":true}',
+              '',
+            ].join('\n'),
+          };
+        }
         if (url.endsWith('/api/chat')) {
-          return new Response(
-            '{"message":{"content":"Hello "},"done":false}\n{"message":{"content":"world"},"done":true}\n',
-            {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            },
-          );
+          const payload = requests.at(-1)?.body;
+          assert.equal(payload.model, 'qwen2.5-coder:14b');
+          assert.equal(payload.stream, false);
+          assert.equal(payload.messages[0].role, 'user');
+          return jsonResponse({
+            message: { content: 'Hello world' },
+            done: true,
+          });
         }
         throw new Error(`Unexpected request: ${url}`);
       },
     },
   );
 
-  const models = await provider.listModels();
-  assert.deepEqual(models, ['qwen2.5-coder:14b', 'llama3.1:8b']);
+  const completion = await provider.complete([
+    { role: 'user', content: 'Say hello' },
+  ], { model: 'qwen2.5-coder:14b' });
+  assert.equal(completion.content, 'Hello world');
+  assert.equal(completion.provider, 'ollama');
+  assert.equal(completion.usage, null);
 
-  const chunks = await collectChunks(provider.chat([
+  const models = await provider.listModels();
+  assert.deepEqual(models.map((model) => model.id), ['qwen2.5-coder:14b', 'llama3.1:8b']);
+
+  const chunks = await collectChunks(provider.stream([
     { role: 'user', content: 'Say hello' },
   ], { model: 'qwen2.5-coder:14b' }));
-
   assert.deepEqual(chunks, ['Hello ', 'world']);
-  assert.equal(requests.some((request) => request.url.endsWith('/api/chat')), true);
 
   const health = await provider.healthCheck();
   assert.equal(health.ok, true);
+  assert.ok(requests.some((request) => request.url.endsWith('/api/tags')));
 });

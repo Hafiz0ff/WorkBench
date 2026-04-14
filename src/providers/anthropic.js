@@ -1,178 +1,191 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { createProviderError, normalizeMessages, withTimeout } from './shared.js';
+import { createProviderError, normalizeMessages } from './shared.js';
+import { requestJson, requestRaw } from './http.js';
+import { resolveSecretValue } from '../secrets.js';
 
 const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
 const DEFAULT_ANTHROPIC_VERSION = '2023-06-01';
-const REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_MODELS = [
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+  'claude-haiku-3-5',
+];
 
-function getApiKey(config = {}) {
-  return config.apiKey || process.env.ANTHROPIC_API_KEY || '';
+async function resolveApiKey(config = {}) {
+  const raw = config.apiKey || process.env.ANTHROPIC_API_KEY || '';
+  const resolved = await resolveSecretValue(raw);
+  return String(resolved || '').trim();
 }
 
 function getBaseUrl(config = {}) {
-  return config.baseUrl || DEFAULT_ANTHROPIC_BASE_URL;
-}
-
-function getClient(config = {}, deps = {}) {
-  if (deps.client) {
-    return deps.client;
-  }
-  const apiKey = getApiKey(config);
-  if (!apiKey) {
-    throw createProviderError('missing_api_key', 'API-ключ Anthropic не настроен.');
-  }
-  return new Anthropic({
-    apiKey,
-    baseURL: getBaseUrl(config),
-  });
-}
-
-function createAsyncQueue() {
-  const queue = [];
-  let done = false;
-  let error = null;
-  let resolver = null;
-  let rejecter = null;
-
-  const wake = () => {
-    if (resolver) {
-      const resolve = resolver;
-      resolver = null;
-      rejecter = null;
-      resolve();
-    }
-  };
-
-  return {
-    push(value) {
-      if (done || error || value === '') {
-        return;
-      }
-      queue.push(value);
-      wake();
-    },
-    close() {
-      done = true;
-      wake();
-    },
-    fail(err) {
-      error = err;
-      if (rejecter) {
-        const reject = rejecter;
-        resolver = null;
-        rejecter = null;
-        reject(err);
-      }
-    },
-    async *iterator() {
-      while (true) {
-        if (queue.length) {
-          yield queue.shift();
-          continue;
-        }
-        if (error) {
-          throw error;
-        }
-        if (done) {
-          return;
-        }
-        await new Promise((resolve, reject) => {
-          resolver = resolve;
-          rejecter = reject;
-        });
-      }
-    },
-  };
-}
-
-async function fetchJson(url, init) {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw createProviderError('request_failed', `Anthropic request failed (${response.status}): ${body || response.statusText}`);
-  }
-  return response.json();
-}
-
-async function fetchJsonWithTimeout(url, init) {
-  return withTimeout(fetchJson(url, init), REQUEST_TIMEOUT_MS, 'Anthropic request timed out.');
+  return String(config.baseUrl || DEFAULT_ANTHROPIC_BASE_URL).replace(/\/$/, '');
 }
 
 function normalizeAnthropicMessages(messages) {
   const normalized = normalizeMessages(messages);
-  const system = normalized
-    .filter((message) => message.role === 'system')
-    .map((message) => message.content)
-    .join('\n\n')
-    .trim();
-  const dialogue = normalized
-    .filter((message) => message.role !== 'system')
-    .map((message) => ({
+  let system = '';
+  const dialogue = [];
+  let firstSystemSeen = false;
+  for (const message of normalized) {
+    if (message.role === 'system' && !firstSystemSeen) {
+      system = message.content;
+      firstSystemSeen = true;
+      continue;
+    }
+    dialogue.push({
       role: message.role === 'assistant' ? 'assistant' : 'user',
       content: message.content,
-    }));
+    });
+  }
   return { system: system || undefined, dialogue };
+}
+
+function extractText(content = []) {
+  return content
+    .map((part) => part?.text || part?.content || '')
+    .filter(Boolean)
+    .join('');
+}
+
+function extractUsage(data) {
+  const usage = data?.usage || null;
+  if (!usage) {
+    return null;
+  }
+  return {
+    promptTokens: Number(usage.input_tokens) || 0,
+    completionTokens: Number(usage.output_tokens) || 0,
+    totalTokens: (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0),
+  };
+}
+
+function buildHeaders(apiKey, config = {}) {
+  return {
+    'content-type': 'application/json',
+    accept: 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': config.apiVersion || DEFAULT_ANTHROPIC_VERSION,
+  };
+}
+
+function parseStreamText(bodyText) {
+  const chunks = [];
+  const lines = String(bodyText || '').replaceAll('\r\n', '\n').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) {
+      continue;
+    }
+    const data = trimmed.slice(5).trimStart();
+    if (!data || data === '[DONE]') {
+      continue;
+    }
+    try {
+      const payload = JSON.parse(data);
+      if (payload?.type === 'content_block_delta') {
+        const chunk = payload.delta?.text || '';
+        if (chunk) chunks.push(chunk);
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+  return chunks;
 }
 
 export function createProvider(config = {}, deps = {}) {
   const providerName = 'anthropic';
-  const defaultModel = config.defaultModel || 'claude-3-5-sonnet-20241022';
+  const defaultModel = config.model || config.defaultModel || 'claude-3-5-sonnet-20241022';
+  const baseUrl = getBaseUrl(config);
 
-  async function* chat(messages, options = {}) {
-    const client = getClient(config, deps);
+  async function complete(messages, options = {}) {
+    const apiKey = await resolveApiKey(config);
+    if (!apiKey) {
+      throw createProviderError('missing_api_key', 'API-ключ Anthropic не настроен.');
+    }
     const { system, dialogue } = normalizeAnthropicMessages(messages);
-    const stream = client.messages.stream({
+    const response = await requestJson(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: buildHeaders(apiKey, config),
+      body: JSON.stringify({
+        model: options.model || defaultModel,
+        max_tokens: options.maxTokens || config.maxTokens || 4096,
+        temperature: options.temperature,
+        system,
+        messages: dialogue,
+        stream: false,
+      }),
+      maxRetries: Number(config.maxRetries) || 0,
+      timeoutMs: Number(config.timeout) || 60000,
+    }, deps);
+    const data = response.json || {};
+    return {
+      content: extractText(Array.isArray(data.content) ? data.content : []),
       model: options.model || defaultModel,
-      max_tokens: options.maxTokens || 4096,
-      temperature: options.temperature,
-      system,
-      messages: dialogue,
-    });
+      provider: providerName,
+      usage: extractUsage(data),
+      durationMs: 0,
+      raw: data,
+    };
+  }
 
-    const queue = createAsyncQueue();
-    stream.on('text', (text) => queue.push(text));
-    const finalMessagePromise = stream.finalMessage().then(
-      () => queue.close(),
-      (error) => queue.fail(error),
-    );
-
-    try {
-      for await (const chunk of queue.iterator()) {
-        yield chunk;
-      }
-    } finally {
-      await finalMessagePromise.catch(() => {});
+  async function* stream(messages, options = {}) {
+    const apiKey = await resolveApiKey(config);
+    if (!apiKey) {
+      throw createProviderError('missing_api_key', 'API-ключ Anthropic не настроен.');
+    }
+    const { system, dialogue } = normalizeAnthropicMessages(messages);
+    const response = await requestRaw(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: buildHeaders(apiKey, config),
+      body: JSON.stringify({
+        model: options.model || defaultModel,
+        max_tokens: options.maxTokens || config.maxTokens || 4096,
+        temperature: options.temperature,
+        system,
+        messages: dialogue,
+        stream: true,
+      }),
+      maxRetries: Number(config.maxRetries) || 0,
+      timeoutMs: Number(config.timeout) || 60000,
+    }, deps);
+    for (const chunk of parseStreamText(response.bodyText)) {
+      yield chunk;
     }
   }
 
   async function listModels() {
-    const apiKey = getApiKey(config);
+    const apiKey = await resolveApiKey(config);
     if (!apiKey) {
       throw createProviderError('missing_api_key', 'API-ключ Anthropic не настроен.');
     }
-    const data = await fetchJsonWithTimeout(`${getBaseUrl(config)}/v1/models`, {
+    const response = await requestJson(`${baseUrl}/v1/models`, {
       method: 'GET',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': config.apiVersion || DEFAULT_ANTHROPIC_VERSION,
-        accept: 'application/json',
-      },
-    });
-    const models = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
-    return models
-      .map((model) => model?.id || model?.name)
-      .filter((name) => typeof name === 'string' && name.length > 0);
+      headers: buildHeaders(apiKey, config),
+      maxRetries: Number(config.maxRetries) || 0,
+      timeoutMs: Number(config.timeout) || 60000,
+    }, deps);
+    const models = Array.isArray(response.json?.data) ? response.json.data : [];
+    const normalized = models.map((model) => ({
+      id: String(model?.id || model?.name || '').trim(),
+      name: String(model?.display_name || model?.name || model?.id || '').trim(),
+      contextWindow: Number.isFinite(Number(model?.context_window)) ? Number(model.context_window) : null,
+      supportsStreaming: true,
+    })).filter((model) => model.id);
+    return normalized.length ? normalized : DEFAULT_MODELS.map((id) => ({
+      id,
+      name: id,
+      contextWindow: null,
+      supportsStreaming: true,
+    }));
   }
 
-  async function healthCheck() {
+  async function health() {
+    const started = Date.now();
     try {
       await listModels();
-      return { ok: true, message: 'ok', code: 'ok' };
+      return { ok: true, latencyMs: Date.now() - started, error: null };
     } catch (error) {
-      if (error?.code === 'missing_api_key') {
-        return { ok: false, message: error.message, code: 'missing_api_key' };
-      }
-      return { ok: false, message: error instanceof Error ? error.message : String(error), code: error?.code || 'request_failed' };
+      return { ok: false, latencyMs: Date.now() - started, error: error?.message || String(error) };
     }
   }
 
@@ -180,11 +193,18 @@ export function createProvider(config = {}, deps = {}) {
     name: providerName,
     defaultModel,
     enabled: config.enabled !== false,
-    baseUrl: getBaseUrl(config),
-    async *chat(messages, options) {
-      yield* chat(messages, options);
+    baseUrl,
+    async complete(messages, options) {
+      return complete(messages, options);
     },
+    async *stream(messages, options) {
+      yield* stream(messages, options);
+    },
+    async *chat(messages, options) {
+      yield* stream(messages, options);
+    },
+    health,
+    healthCheck: health,
     listModels,
-    healthCheck,
   };
 }

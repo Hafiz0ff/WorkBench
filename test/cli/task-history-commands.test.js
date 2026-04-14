@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
@@ -35,6 +36,37 @@ async function createTempProject() {
     },
   });
   return root;
+}
+
+async function startOllamaMock() {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/api/chat') {
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(`${JSON.stringify({
+        message: {
+          content: JSON.stringify({
+            message: 'Готово.',
+            tool_calls: [],
+          }),
+        },
+        done: true,
+      })}\n`);
+      return;
+    }
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ models: [{ name: 'qwen2.5-coder:14b' }] }));
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  return {
+    server,
+    host: `http://127.0.0.1:${port}`,
+  };
 }
 
 async function runCliWithInput(args, { cwd, env, input }) {
@@ -77,6 +109,7 @@ async function runCliWithInput(args, { cwd, env, input }) {
 
 test('task history, sessions, export, and continue commands use conversation history', async () => {
   const root = await createTempProject();
+  const mock = await startOllamaMock();
   const task = await createTask(root, {
     title: 'Auth history',
     userRequest: 'Проверить историю задачи',
@@ -222,13 +255,7 @@ test('task history, sessions, export, and continue commands use conversation his
     env: {
       ...process.env,
       APP_LOCALE: 'ru',
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : ''}--import=${mockImport}`,
-      MOCK_OLLAMA_CHAT_RESPONSE: `${JSON.stringify({
-        message: {
-          content: 'Готово.',
-        },
-        done: true,
-      })}\n`,
+      OLLAMA_HOST: mock.host,
     },
     input: ['Продолжить работу над задачей\n', '/exit\n'],
   });
@@ -239,4 +266,5 @@ test('task history, sessions, export, and continue commands use conversation his
   assert.match(continueResult.stdout, /Готово\./);
   const requestLog = await readFile(path.join(continueTask.folderPath, 'conversation.jsonl'), 'utf8');
   assert.match(requestLog, /Продолжить работу над задачей/);
+  await new Promise((resolve) => mock.server.close(resolve));
 });

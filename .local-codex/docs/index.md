@@ -8,6 +8,7 @@
 - [Phase 5](./phase-5/tz.md) - Workspace / multi-project mode - completed
 - [Phase 6](./phase-6/tz.md) - Analytics and usage statistics - completed
 - [Phase 7](./phase-7/tz.md) - Event Hooks / Telegram notifications - completed
+- [Phase 8](./phase-8/tz.md) - Multi-provider / OpenAI, Anthropic, Gemini - completed
 
 ## Status
 
@@ -19,4 +20,5 @@
 - Phase 5: completed
 - Phase 6: completed
 - Phase 7: completed
+- Phase 8: completed
 - Documentation is append-only.

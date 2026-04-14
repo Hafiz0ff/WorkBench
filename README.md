@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-1.4.0-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-2.0.0-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -28,7 +28,7 @@ Workbench is a local coding assistant for macOS powered by Ollama. It combines a
 
 Workbench also includes an optional local web dashboard, available from the same project workspace, for quick browser-based inspection of tasks, patches, tests, memory, providers, and roles.
 
-Workbench is now moving toward a provider layer that can switch between Ollama, OpenAI, Anthropic, and Gemini through the same CLI and workspace state.
+Workbench now ships with a provider layer that switches between Ollama, OpenAI, Anthropic, and Gemini through the same CLI and workspace state.
 
 <a id="russian"></a>
 ## Русский
@@ -37,7 +37,7 @@ Workbench - локальный coding assistant для macOS на базе Ollam
 
 Workbench также включает опциональный локальный web dashboard, который открывается из того же project workspace и позволяет быстро смотреть задачи, патчи, тесты, память, провайдеры и роли в браузере.
 
-Workbench также получает provider layer, который позволяет переключаться между Ollama, OpenAI, Anthropic и Gemini через один и тот же интерфейс.
+Workbench также поставляется с provider layer, который позволяет переключаться между Ollama, OpenAI, Anthropic и Gemini через один и тот же интерфейс.
 
 <a id="highlights"></a>
 ## Highlights / Возможности
@@ -576,6 +576,7 @@ Release docs:
 - `docs/release-notes-1.2.0.md`
 - `docs/release-notes-1.3.0.md`
 - `docs/release-notes-1.4.0.md`
+- `docs/release-notes-2.0.0.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -584,4 +585,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `1.4.0`.
+- The current release line is `2.0.0`.
