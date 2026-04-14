@@ -15,6 +15,7 @@ const TOP_LEVEL_COMMANDS = new Set([
   'task',
   'diff',
   'patch',
+  'ext',
   'extensions',
   'registry',
   'tree',

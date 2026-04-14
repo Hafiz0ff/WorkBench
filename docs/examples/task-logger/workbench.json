@@ -1,0 +1,11 @@
+{
+  "name": "task-logger",
+  "version": "0.1.0",
+  "description": "Appends a short log after each task.",
+  "author": "WorkBench",
+  "hooks": ["post-task"],
+  "commands": [],
+  "permissions": ["write-notes"],
+  "minWorkbenchVersion": "2.3.0",
+  "enabled": true
+}

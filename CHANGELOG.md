@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0
+- Added the Extension SDK with plugin manifests, hook runners, permission-guarded APIs, and custom commands.
+- Added `app extensions scaffold|info|enable|disable|remove` plus `app ext <command>` dispatch for plugin commands.
+- Added plugin dashboard coverage, API routes, developer docs, and example extensions.
+- Bumped the release line for the plugin system phase.
+
 ## 2.2.0
 - Added semantic vector search over project memory and source code with local file-backed indexes.
 - Added `app index` and `app search` commands plus dashboard integration for index status and search.

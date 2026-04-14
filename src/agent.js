@@ -6,6 +6,7 @@ import { trackEvent } from './stats.js';
 import { checkLimit, createBudgetError, trackUsage } from './budget.js';
 import { readProjectPolicy } from './policy.js';
 import { semanticSearch, formatForContext } from './search.js';
+import { runExtensionHook } from './extensions.js';
 
 function stripCodeFence(text) {
   const trimmed = text.trim();
@@ -123,8 +124,8 @@ function estimateMessageTokens(messages) {
   return estimateTokens(JSON.stringify(messages || []));
 }
 
-async function runModelRound({ projectRoot = null, provider, model, messages, policy = null }) {
-  const content = await collectModelText(projectRoot, provider, model, messages, { policy });
+async function runModelRound({ projectRoot = null, provider, model, messages, policy = null, taskId = null }) {
+  const content = await collectModelText(projectRoot, provider, model, messages, { policy, taskId });
   return parseAssistantEnvelope(content);
 }
 
@@ -169,7 +170,7 @@ async function enrichMessagesWithSemanticContext(projectRoot, messages, policy =
   }
 }
 
-async function collectModelText(projectRoot, provider, model, messages, { policy = null } = {}) {
+async function collectModelText(projectRoot, provider, model, messages, { policy = null, taskId = null } = {}) {
   if (projectRoot) {
     const budgetCheck = await checkLimit(projectRoot, provider?.name || 'unknown');
     const resolvedPolicy = policy || await readProjectPolicy(projectRoot).catch(() => null);
@@ -177,10 +178,38 @@ async function collectModelText(projectRoot, provider, model, messages, { policy
       throw createBudgetError('Token budget exceeded.', budgetCheck.exceeded);
     }
     messages = await enrichMessagesWithSemanticContext(projectRoot, messages, resolvedPolicy);
+    const prePrompt = await runExtensionHook(projectRoot, 'pre-prompt', {
+      messages,
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+      taskId,
+    }, {
+      policy: resolvedPolicy,
+    }).catch(() => null);
+    if (prePrompt?.messages && Array.isArray(prePrompt.messages)) {
+      messages = prePrompt.messages;
+    }
+    if (prePrompt?.abort) {
+      throw new Error(prePrompt.abortReason || 'Prompt aborted by extension.');
+    }
   }
   let content = '';
   for await (const chunk of provider.chat(messages, { model })) {
     content += chunk;
+  }
+  if (projectRoot) {
+    const postResponse = await runExtensionHook(projectRoot, 'post-response', {
+      content,
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+      usage: null,
+      taskId,
+    }, {
+      policy: policy || await readProjectPolicy(projectRoot).catch(() => null),
+    }).catch(() => null);
+    if (typeof postResponse?.content === 'string') {
+      content = postResponse.content;
+    }
   }
   if (projectRoot) {
     void trackUsage(projectRoot, {
@@ -235,6 +264,8 @@ export async function runInteractiveAgent({
 }) {
   const rl = readline.createInterface({ input, output });
   const history = Array.isArray(initialConversationHistory) ? [...initialConversationHistory] : [];
+  const activeTaskId = taskTools.currentTaskId || null;
+  const activeMode = activeTaskId ? 'auto' : 'manual';
 
   console.log(t ? t('agent.projectRoot', { path: root }) : `Корень проекта: ${root}`);
   console.log(t ? t('agent.model', { model }) : `Модель: ${model}`);
@@ -242,11 +273,25 @@ export async function runInteractiveAgent({
   console.log(t ? t('agent.projectReady') : 'Проект готов. Опишите задачу ниже.');
 
   async function handleTurn(trimmed) {
-    const composition = await composePromptForTask(trimmed);
+    const preTask = await runExtensionHook(root, 'pre-task', {
+      taskId: activeTaskId,
+      prompt: trimmed,
+      mode: activeMode,
+      projectRoot: root,
+    }, {
+      policy,
+    }).catch(() => null);
+    if (preTask?.abort) {
+      console.log(preTask.abortReason || 'Задача отменена расширением.');
+      return;
+    }
+    const promptText = typeof preTask?.prompt === 'string' ? preTask.prompt : trimmed;
+    const turnStartedAt = Date.now();
+    const composition = await composePromptForTask(promptText);
     const messages = [
       { role: 'system', content: composition.finalPrompt },
       ...history,
-      { role: 'user', content: trimmed },
+      { role: 'user', content: promptText },
     ];
 
     let lastAssistantMessage = '';
@@ -255,7 +300,7 @@ export async function runInteractiveAgent({
 
     while (rounds < 8) {
       rounds += 1;
-      const assistant = await runModelRound({ projectRoot: root, provider, model, messages, policy });
+      const assistant = await runModelRound({ projectRoot: root, provider, model, messages, policy, taskId: activeTaskId });
       lastAssistantMessage = assistant.message || '';
       if (assistant.message) {
         console.log(`\n${assistant.message}\n`);
@@ -305,11 +350,21 @@ export async function runInteractiveAgent({
 
     if (typeof taskTools.onTurnComplete === 'function') {
       await taskTools.onTurnComplete({
-        userInput: trimmed,
+        userInput: promptText,
         assistantMessage: lastAssistantMessage,
         toolResults: turnToolResults,
       });
     }
+
+    await runExtensionHook(root, 'post-task', {
+      taskId: activeTaskId,
+      prompt: promptText,
+      result: 'done',
+      patchesApplied: turnToolResults.length,
+      durationMs: Date.now() - turnStartedAt,
+    }, {
+      policy,
+    }).catch(() => {});
   }
 
   const firstInput = String(initialUserInput || '').trim();

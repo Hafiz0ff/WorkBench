@@ -12,14 +12,19 @@ import {
   updateExtension,
   removeExtension,
   doctorExtensions,
+  loadExtensions,
+  listExtensions,
+  runExtensionCommand,
+  runExtensionHook,
+  scaffoldExtension,
 } from '../src/extensions.js';
 
-async function createTempProject() {
+async function createTempProject(version = '0.1.0') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'local-codex-extensions-'));
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'package.json'), JSON.stringify({
     name: 'sample-project',
-    version: '0.1.0',
+    version,
     type: 'module',
   }, null, 2));
   return root;
@@ -321,4 +326,252 @@ test('localized extension strings are available and CLI help includes extension 
   const translator = await (await import('../src/i18n.js')).createTranslator('ru');
   assert.match(translator('extensions.installPreviewTitle'), /Предпросмотр расширения/);
   assert.match(translator('extensions.listTitle'), /Расширения/);
+});
+
+async function writeSdkExtension(root, workbenchHome, name, scope, manifest, indexJs) {
+  const baseDir = scope === 'global'
+    ? path.join(workbenchHome, 'extensions', name)
+    : path.join(root, '.local-codex', 'extensions', name);
+  await mkdir(baseDir, { recursive: true });
+  await writeFile(path.join(baseDir, 'workbench.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(path.join(baseDir, 'index.js'), `${indexJs.trimEnd()}\n`);
+  return baseDir;
+}
+
+test('extension SDK loads global and local plugins in order and prefers local overrides', async (t) => {
+  const root = await createTempProject('2.3.0');
+  const workbenchHome = await mkdtemp(path.join(os.tmpdir(), 'workbench-sdk-home-'));
+  const previousHome = process.env.WORKBENCH_HOME;
+  process.env.WORKBENCH_HOME = workbenchHome;
+
+  t.after(async () => {
+    process.env.WORKBENCH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(workbenchHome, { recursive: true, force: true });
+  });
+
+  const sharedManifest = {
+    name: 'alpha',
+    version: '1.0.0',
+    description: 'SDK plugin.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  };
+
+  await writeSdkExtension(root, workbenchHome, 'alpha', 'global', sharedManifest, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, prompt: \`\${ctx.prompt}|global\` }));
+    }
+  `);
+  await writeSdkExtension(root, workbenchHome, 'beta', 'local', {
+    name: 'beta',
+    version: '1.0.0',
+    description: 'SDK plugin.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, prompt: \`\${ctx.prompt}|local\` }));
+    }
+  `);
+
+  const registry = await loadExtensions(root, null, { force: true });
+  assert.deepEqual(registry.plugins.map((plugin) => plugin.name).sort(), ['alpha', 'beta']);
+  assert.equal(registry.getPlugin('alpha')?.scope, 'global');
+
+  const hookResult = await runExtensionHook(root, 'pre-task', {
+    taskId: 'task-1',
+    prompt: 'start',
+    mode: 'manual',
+    projectRoot: root,
+  }, {
+    policy: null,
+    force: true,
+  });
+  assert.equal(hookResult.prompt, 'start|global|local');
+
+  await writeSdkExtension(root, workbenchHome, 'alpha', 'local', {
+    name: 'alpha',
+    version: '1.0.0',
+    description: 'Local override.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, prompt: \`\${ctx.prompt}|override\` }));
+    }
+  `);
+
+  const overridden = await loadExtensions(root, null, { force: true });
+  assert.equal(overridden.getPlugin('alpha')?.scope, 'local');
+  assert.equal(overridden.getPlugin('alpha')?.description, 'Local override.');
+});
+
+test('extension SDK stops after abort and keeps running after handler errors', async (t) => {
+  const root = await createTempProject('2.3.0');
+  const workbenchHome = await mkdtemp(path.join(os.tmpdir(), 'workbench-sdk-home-'));
+  const previousHome = process.env.WORKBENCH_HOME;
+  process.env.WORKBENCH_HOME = workbenchHome;
+
+  t.after(async () => {
+    process.env.WORKBENCH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(workbenchHome, { recursive: true, force: true });
+  });
+
+  await writeSdkExtension(root, workbenchHome, 'aborter', 'global', {
+    name: 'aborter',
+    version: '1.0.0',
+    description: 'Stops the chain.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, abort: true, abortReason: 'stop here', prompt: \`\${ctx.prompt}|abort\` }));
+    }
+  `);
+  await writeSdkExtension(root, workbenchHome, 'follower', 'local', {
+    name: 'follower',
+    version: '1.0.0',
+    description: 'Should not run after abort.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, prompt: \`\${ctx.prompt}|follower\` }));
+    }
+  `);
+
+  const aborted = await runExtensionHook(root, 'pre-task', {
+    taskId: 'task-2',
+    prompt: 'start',
+    mode: 'manual',
+    projectRoot: root,
+  }, {
+    policy: null,
+    force: true,
+  });
+  assert.equal(aborted.prompt, 'start|abort');
+  assert.equal(aborted.abort, true);
+  assert.equal(aborted.abortReason, 'stop here');
+
+  await rm(path.join(workbenchHome, 'extensions', 'aborter'), { recursive: true, force: true });
+  await rm(path.join(root, '.local-codex', 'extensions', 'follower'), { recursive: true, force: true });
+
+  await writeSdkExtension(root, workbenchHome, 'broken', 'global', {
+    name: 'broken',
+    version: '1.0.0',
+    description: 'Throws during hook.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async () => { throw new Error('boom'); });
+    }
+  `);
+  await writeSdkExtension(root, workbenchHome, 'rescue', 'local', {
+    name: 'rescue',
+    version: '1.0.0',
+    description: 'Continues after error.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: [],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, prompt: \`\${ctx.prompt}|rescued\` }));
+    }
+  `);
+
+  const recovered = await runExtensionHook(root, 'pre-task', {
+    taskId: 'task-3',
+    prompt: 'start',
+    mode: 'manual',
+    projectRoot: root,
+  }, {
+    policy: null,
+    force: true,
+  });
+  assert.equal(recovered.prompt, 'start|rescued');
+});
+
+test('extension SDK returns ctx unchanged when there are no plugins', async () => {
+  const root = await createTempProject('2.3.0');
+  const result = await runExtensionHook(root, 'pre-task', {
+    taskId: 'task-empty',
+    prompt: 'plain',
+    mode: 'manual',
+    projectRoot: root,
+  }, {
+    policy: null,
+    force: true,
+  });
+  assert.deepEqual(result, {
+    taskId: 'task-empty',
+    prompt: 'plain',
+    mode: 'manual',
+    projectRoot: root,
+  });
+});
+
+test('extension SDK dispatches custom commands', async (t) => {
+  const root = await createTempProject('2.3.0');
+  const workbenchHome = await mkdtemp(path.join(os.tmpdir(), 'workbench-sdk-home-'));
+  const previousHome = process.env.WORKBENCH_HOME;
+  process.env.WORKBENCH_HOME = workbenchHome;
+
+  t.after(async () => {
+    process.env.WORKBENCH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(workbenchHome, { recursive: true, force: true });
+  });
+
+  await writeSdkExtension(root, workbenchHome, 'command-plugin', 'local', {
+    name: 'command-plugin',
+    version: '1.0.0',
+    description: 'Registers a command.',
+    author: 'Codex',
+    hooks: [],
+    commands: ['echo-plugin'],
+    permissions: [],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.registerCommand('echo-plugin', async (args) => \`echo:\${args.join(',')}\`);
+    }
+  `);
+
+  const result = await runExtensionCommand(root, 'echo-plugin', ['a', 'b'], { force: true });
+  assert.equal(result, 'echo:a,b');
+
+  const extensions = await listExtensions(root);
+  assert.equal(extensions.length, 1);
+  assert.deepEqual(extensions[0].commands, ['echo-plugin']);
 });

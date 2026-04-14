@@ -1164,3 +1164,5 @@ export function formatExtensionSummary(entry) {
 export function getExtensionInstallLocation(projectRoot, extensionId) {
   return getExtensionInstallPath(projectRoot, extensionId);
 }
+
+export * from './extensions-sdk.js';

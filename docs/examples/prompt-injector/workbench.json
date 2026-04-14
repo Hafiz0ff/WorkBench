@@ -1,0 +1,11 @@
+{
+  "name": "prompt-injector",
+  "version": "0.1.0",
+  "description": "Injects extra prompt context before LLM calls.",
+  "author": "WorkBench",
+  "hooks": ["pre-prompt"],
+  "commands": [],
+  "permissions": ["read-code"],
+  "minWorkbenchVersion": "2.3.0",
+  "enabled": true
+}

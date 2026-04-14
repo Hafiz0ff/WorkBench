@@ -54,15 +54,22 @@ import {
 } from './tasks.js';
 import {
   ensureExtensionsWorkspace,
+  describeExtension,
+  listExtensions,
   listInstalledExtensions,
+  loadExtensions,
   previewExtensionInstall,
+  removeLoadedExtension,
+  runExtensionCommand,
   installExtension,
   removeExtension,
+  scaffoldExtension,
   updateExtension,
   inspectExtension,
   doctorExtensions,
   enableExtension,
   disableExtension,
+  setLoadedExtensionEnabled,
   listEnabledExtensionPromptPacks,
 } from './extensions.js';
 import {
@@ -210,6 +217,10 @@ function parseOptions(argv) {
       options.alias = argv[++i];
       continue;
     }
+    if (value === '--global') {
+      options.global = true;
+      continue;
+    }
     if (value === '--tag') {
       options.tags = options.tags || [];
       options.tags.push(argv[++i]);
@@ -309,6 +320,10 @@ function parseOptions(argv) {
     }
     if (value === '--channel') {
       options.channel = argv[++i];
+      continue;
+    }
+    if (value === '--hooks') {
+      options.hooks = argv[++i];
       continue;
     }
     if (value === '--on') {
@@ -1103,6 +1118,34 @@ function printExtensionDetails(entry, manifest, source, t) {
   if (manifest) {
     console.log('');
     console.log(JSON.stringify(manifest, null, 2));
+  }
+}
+
+function printPluginSummary(plugin, t) {
+  console.log(`${plugin.enabled ? '●' : '◦'} ${plugin.name} (${plugin.version})`);
+  console.log(`  ${t('extensions.scope')}: ${plugin.scope}`);
+  console.log(`  ${t('extensions.hooks')}: ${(plugin.hooks || []).join(', ') || t('common.notSet')}`);
+  console.log(`  ${t('extensions.commands')}: ${(plugin.commands || []).join(', ') || t('common.notSet')}`);
+  console.log(`  ${t('extensions.permissions')}: ${(plugin.permissions || []).join(', ') || t('common.notSet')}`);
+  console.log(`  ${t('extensions.status')}: ${plugin.enabled ? t('extensions.statusEnabled') : t('extensions.statusDisabled')}`);
+}
+
+function printPluginDetails(plugin, t) {
+  console.log(`${t('extensions.name')}: ${plugin.name}`);
+  console.log(`${t('extensions.version')}: ${plugin.version}`);
+  console.log(`${t('extensions.scope')}: ${plugin.scope}`);
+  console.log(`${t('extensions.status')}: ${plugin.enabled ? t('extensions.statusEnabled') : t('extensions.statusDisabled')}`);
+  console.log(`${t('extensions.description')}: ${plugin.description || t('common.notSet')}`);
+  console.log(`${t('extensions.author')}: ${plugin.author || t('common.notSet')}`);
+  console.log(`${t('extensions.hooks')}: ${(plugin.hooks || []).join(', ') || t('common.notSet')}`);
+  console.log(`${t('extensions.commands')}: ${(plugin.commands || []).join(', ') || t('common.notSet')}`);
+  console.log(`${t('extensions.permissions')}: ${(plugin.permissions || []).join(', ') || t('common.notSet')}`);
+  console.log(`${t('extensions.minWorkbenchVersion')}: ${plugin.minWorkbenchVersion || t('common.notSet')}`);
+  console.log(`${t('extensions.directory')}: ${plugin.directory}`);
+  console.log(`${t('extensions.manifestPath')}: ${plugin.manifestPath}`);
+  console.log(`${t('extensions.loaded')}: ${plugin.loaded ? t('common.yes') : t('common.no')}`);
+  if (plugin.stats) {
+    console.log(`${t('extensions.stats')}: ${JSON.stringify(plugin.stats)}`);
   }
 }
 
@@ -3018,6 +3061,91 @@ async function handleExtensionsCommand(subcommand, options, t, locale) {
   const projectRoot = process.cwd();
   await ensureExtensionsWorkspace(projectRoot);
 
+  if (['list', 'scaffold', 'info', 'enable', 'disable', 'remove'].includes(subcommand)) {
+    if (subcommand === 'list') {
+      const extensions = await listExtensions(projectRoot);
+      console.log(t('extensions.listTitle'));
+      if (!extensions.length) {
+        console.log(t('extensions.empty'));
+        return;
+      }
+      for (const entry of extensions) {
+        printPluginSummary(entry, t);
+        console.log('');
+      }
+      return;
+    }
+
+    if (subcommand === 'scaffold') {
+      const name = options._[0];
+      if (!name) {
+        throw new Error(t('common.missingExtensionId'));
+      }
+      const hooks = String(options.hooks || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const result = await scaffoldExtension(projectRoot, name, {
+        global: options.global === true,
+        hooks,
+      });
+      console.log(t('extensions.scaffolded', { path: result.directory }));
+      console.log(`  ${t('extensions.scope')}: ${result.scope}`);
+      return;
+    }
+
+    if (subcommand === 'info') {
+      const name = options._[0];
+      if (!name) {
+        throw new Error(t('common.missingExtensionId'));
+      }
+      const info = await describeExtension(projectRoot, name);
+      if (!info) {
+        throw new Error(t('extensions.notFound', { id: name }));
+      }
+      console.log(t('extensions.pluginDetailsTitle'));
+      printPluginDetails(info, t);
+      return;
+    }
+
+    if (subcommand === 'enable') {
+      const name = options._[0];
+      if (!name) {
+        throw new Error(t('common.missingExtensionId'));
+      }
+      const entry = await setLoadedExtensionEnabled(projectRoot, name, true);
+      console.log(t('extensions.pluginEnabled', { id: entry.name || name }));
+      return;
+    }
+
+    if (subcommand === 'disable') {
+      const name = options._[0];
+      if (!name) {
+        throw new Error(t('common.missingExtensionId'));
+      }
+      const entry = await setLoadedExtensionEnabled(projectRoot, name, false);
+      console.log(t('extensions.pluginDisabled', { id: entry.name || name }));
+      return;
+    }
+
+    if (subcommand === 'remove') {
+      const name = options._[0];
+      if (!name) {
+        throw new Error(t('common.missingExtensionId'));
+      }
+      if (!options.yes && !options.confirm) {
+        const approved = await promptConfirmation(t('extensions.removePluginPrompt', { id: name }));
+        if (!approved) {
+          console.log(t('extensions.removeRejected'));
+          return;
+        }
+      }
+      const removed = await removeLoadedExtension(projectRoot, name);
+      console.log(t('extensions.pluginRemoved', { id: removed.name || name }));
+      return;
+    }
+  }
+
   if (subcommand === 'install') {
     const source = options._[0];
     if (!source) {
@@ -3443,6 +3571,19 @@ async function main() {
     return;
   }
 
+  if (command === 'ext') {
+    if (!subcommand) {
+      printUsage(t);
+      return;
+    }
+    const policy = await readProjectPolicy(process.cwd()).catch(() => null);
+    const result = await runExtensionCommand(process.cwd(), subcommand, options._, { policy });
+    if (result !== undefined) {
+      console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+    }
+    return;
+  }
+
   if (command === 'tree') {
     const projectPath = subcommand;
     if (!projectPath) {
@@ -3461,6 +3602,19 @@ async function main() {
     }
     await runProjectStart(projectPath, options, t, locale);
     return;
+  }
+
+  try {
+    const policy = await readProjectPolicy(process.cwd()).catch(() => null);
+    const result = await runExtensionCommand(process.cwd(), command, [subcommand, ...rest].filter((value) => value !== undefined), { policy });
+    if (result !== undefined) {
+      console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+    }
+    return;
+  } catch (error) {
+    if (!String(error?.message || '').includes('Command not found')) {
+      throw error;
+    }
   }
 
   printUsage(t);

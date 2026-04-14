@@ -5,6 +5,7 @@ import { evaluatePathPolicy, readProjectPolicy } from './policy.js';
 import { runConfiguredTests, getTestRunnerConfig, detectRunner } from './test-runner.js';
 import { trackEvent } from './stats.js';
 import { indexIncremental, prepareEmbeddingProvider } from './indexer.js';
+import { runExtensionHook } from './extensions.js';
 
 const PATCHES_DIR_NAME = path.join('.local-codex', 'patches');
 const PENDING_PATCH_FILE = path.join('.local-codex', 'pending-change.json');
@@ -509,6 +510,44 @@ export async function stageProjectPatch(projectRoot, input = {}) {
   patch.diffText = patch.changes.map((change) => change.diffText).join('\n\n');
   patch.validationStatus = patch.validationCommands.length ? 'pending' : 'skipped';
 
+  for (let index = 0; index < patch.changes.length; index += 1) {
+    const change = patch.changes[index];
+    const extensionResult = await runExtensionHook(root, 'pre-patch', {
+      taskId: patch.taskId || null,
+      patchIndex: index,
+      patch: {
+        filePath: change.path,
+        before: change.beforeContent,
+        after: change.afterContent,
+      },
+    }, {
+      policy,
+    }).catch(() => null);
+    if (extensionResult?.abort) {
+      return {
+        applied: false,
+        reason: extensionResult.abortReason || 'aborted_by_extension',
+        patch,
+        validationResults: [],
+        testOutcome: {
+          action: 'warn',
+          rolledBack: false,
+          validationStatus: 'skipped',
+        },
+      };
+    }
+    if (extensionResult?.patch && typeof extensionResult.patch === 'object') {
+      if (typeof extensionResult.patch.before === 'string') {
+        change.beforeContent = extensionResult.patch.before;
+      }
+      if (typeof extensionResult.patch.after === 'string') {
+        change.afterContent = extensionResult.patch.after;
+      }
+      change.diffText = buildFileDiff(change);
+    }
+  }
+  patch.diffText = patch.changes.map((change) => change.diffText).join('\n\n');
+
   const { patchPath, diffPath } = await writePatchArtifact(root, patch);
   const pending = {
     schemaVersion: PATCH_SCHEMA_VERSION,
@@ -637,6 +676,7 @@ export function formatPatchStatus(patch, t) {
 export async function applyPatchArtifact(projectRoot, patch = null, options = {}) {
   const root = normalizeRoot(projectRoot);
   await ensurePatchWorkspace(root);
+  const policy = options.policy || await readProjectPolicy(root);
   const current = patch || await getPendingPatch(root);
   if (!current) {
     return {
@@ -695,12 +735,12 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
   }
 
   const validationResults = await runPatchTestSuite(root, artifact, {
-    policy: options.policy,
+    policy,
     skipTests: options.skipTests,
   });
   const validationStatus = summarizeValidationStatus(validationResults);
   const testOutcome = await handlePatchFailureOutcome(root, artifact, validationResults, {
-    policy: options.policy,
+    policy,
     promptApproval: options.promptApproval,
   });
   const finalPatch = testOutcome.rolledBack ? testOutcome.patch : artifact;
@@ -714,13 +754,6 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
   };
   const artifactPath = path.join(root, PATCHES_DIR_NAME, artifact.patchId, 'patch.json');
   await atomicWriteFile(artifactPath, `${JSON.stringify(nextPatch, null, 2)}\n`);
-  void trackEvent(root, {
-    type: testOutcome.rolledBack ? 'patch.rolledBack' : 'patch.applied',
-    patchId: nextPatch.patchId,
-    taskId: nextPatch.taskId || null,
-    status: nextPatch.status,
-  });
-  void refreshVectorIndexAfterPatch(root, options.policy || null);
 
   const pending = {
     schemaVersion: PATCH_SCHEMA_VERSION,
@@ -743,13 +776,25 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
     patchPath: path.relative(root, artifactPath),
   };
   await writePendingPatch(root, pending);
+  await runExtensionHook(root, 'post-patch', {
+    taskId: nextPatch.taskId || null,
+    patchIndex: 0,
+    patch: {
+      filePath: artifact.changes[0]?.path || null,
+      before: null,
+      after: null,
+    },
+    success: !testOutcome.rolledBack,
+    }, {
+      policy,
+    }).catch(() => {});
+  void refreshVectorIndexAfterPatch(root, policy);
   void trackEvent(root, {
-    type: 'patch.rejected',
+    type: testOutcome.rolledBack ? 'patch.rolledBack' : 'patch.applied',
     patchId: nextPatch.patchId,
     taskId: nextPatch.taskId || null,
     status: nextPatch.status,
   });
-  void refreshVectorIndexAfterPatch(root, options.policy || null);
 
   return {
     applied: !testOutcome.rolledBack,
@@ -806,6 +851,12 @@ export async function rejectPatchArtifact(projectRoot, patch = null) {
     patchPath: path.relative(root, artifactPath),
   };
   await writePendingPatch(root, pending);
+  void trackEvent(root, {
+    type: 'patch.rejected',
+    patchId: nextPatch.patchId,
+    taskId: nextPatch.taskId || null,
+    status: nextPatch.status,
+  });
 
   return {
     rejected: true,

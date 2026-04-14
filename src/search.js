@@ -4,6 +4,7 @@ import { embed as embedTexts, getEmbeddingProvider } from './embeddings.js';
 import { ensureIndexExists } from './indexer.js';
 import { openTable, search as searchTable, tableInfo } from './vectordb.js';
 import { normalizeRoot } from './security.js';
+import { runExtensionHook } from './extensions.js';
 
 function nowMs() {
   return Date.now();
@@ -110,9 +111,16 @@ export async function semanticSearch(projectRoot, query, opts = {}) {
   }
 
   results.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.chunkIndex - b.chunkIndex);
-  return {
+  const hooked = await runExtensionHook(root, 'memory-read', {
     query: searchQuery,
     results: results.slice(0, limit),
+    source: sources.length === 1 ? sources[0] : 'all',
+  }, {
+    policy,
+  }).catch(() => null);
+  return {
+    query: searchQuery,
+    results: Array.isArray(hooked?.results) ? hooked.results : results.slice(0, limit),
     durationMs: nowMs() - startedAt,
     embeddingModel: embeddingProvider.model,
   };

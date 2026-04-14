@@ -22,6 +22,8 @@ const state = {
   indexProgress: null,
   hooks: [],
   hookHistory: [],
+  extensions: [],
+  selectedExtensionName: null,
   providers: [],
   roles: [],
   workspaces: [],
@@ -45,6 +47,7 @@ const sectionMeta = {
   budget: { label: 'Бюджет', icon: '¤', subtitle: 'token usage и лимиты' },
   index: { label: 'Индекс', icon: '⌘', subtitle: 'semantic memory' },
   hooks: { label: 'Хуки', icon: '⚑', subtitle: 'уведомления и алерты' },
+  extensions: { label: 'Расширения', icon: '⬡', subtitle: 'extension sdk' },
   memory: { label: 'Память', icon: '◫', subtitle: 'project context' },
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
   roles: { label: 'Роли', icon: '◎', subtitle: 'profiles' },
@@ -1270,6 +1273,103 @@ function renderHooks() {
   );
 }
 
+function renderExtensions() {
+  const selectedExtension = state.extensions.find((extension) => extension.name === state.selectedExtensionName)
+    || state.extensions[0]
+    || null;
+  return sectionWrapper(
+    'Расширения',
+    'Extension SDK плагины: хуки, команды и permissions с локальным переопределением.',
+    buttonMarkup('Обновить список', 'refresh-all', '', 'primary'),
+    `
+      <div class="card" style="margin-bottom: 16px;">
+        <div class="card-header"><h2 class="card-title">Создать шаблон</h2></div>
+        <div class="card-body">
+          <div class="grid two-up">
+            <label class="field">
+              <span class="field-label">Имя</span>
+              <input type="text" data-extension-name placeholder="my-plugin" />
+            </label>
+            <label class="field">
+              <span class="field-label">Хуки</span>
+              <input type="text" data-extension-hooks placeholder="pre-patch,post-patch" />
+            </label>
+          </div>
+          <div class="actions" style="margin-top: 12px;">
+            <label class="toggle-row"><input type="checkbox" data-extension-global /> <span>Глобально</span></label>
+            <button class="button primary" data-action="scaffold-extension">Scaffold</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid split">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">Плагины</h2></div>
+          <div class="card-body">
+            ${state.extensions.length ? `
+              <div class="list">
+                ${state.extensions.map((extension) => `
+                  <button class="list-item ${extension.name === selectedExtension?.name ? 'selected' : ''}" data-action="select-extension" data-extension-name="${escapeHtml(extension.name)}">
+                    <div class="list-main">
+                      <div class="list-title">${escapeHtml(extension.name)} <span class="tiny-badge">${escapeHtml(extension.scope || 'local')}</span></div>
+                      <div class="list-subtitle">${escapeHtml((extension.hooks || []).join(', ') || '—')}</div>
+                    </div>
+                    <div class="list-meta">
+                      <span class="tiny-badge ${extension.enabled ? 'ok' : 'warn'}">${extension.enabled ? 'вкл' : 'выкл'}</span>
+                      <span class="tiny-badge">${escapeHtml(String(extension.stats?.hookCalls || 0))} hooks</span>
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            ` : emptyState('Расширения не найдены', 'Создайте первый плагин через Scaffold или CLI `app extensions scaffold`.')}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">${escapeHtml(selectedExtension?.name || 'Выберите расширение')}</h2>
+            <div class="actions">
+              ${selectedExtension ? `
+                <button class="button ${selectedExtension.enabled ? '' : 'primary'}" data-action="${selectedExtension.enabled ? 'disable-extension' : 'enable-extension'}" data-extension-name="${escapeHtml(selectedExtension.name)}">${selectedExtension.enabled ? 'Отключить' : 'Включить'}</button>
+              ` : ''}
+            </div>
+          </div>
+          <div class="card-body">
+            ${selectedExtension ? `
+              <div class="grid two-up">
+                ${metricCard('Scope', selectedExtension.scope || 'local', selectedExtension.loaded ? 'loaded' : 'not loaded')}
+                ${metricCard('Hooks / Commands', (selectedExtension.hooks || []).length, (selectedExtension.commands || []).length ? selectedExtension.commands.join(', ') : '—')}
+              </div>
+              <div class="grid two-up" style="margin-top: 12px;">
+                ${metricCard('Permissions', (selectedExtension.permissions || []).join(', ') || '—', selectedExtension.minWorkbenchVersion || '—')}
+                ${metricCard('Stats', `${selectedExtension.stats?.hookCalls || 0} hook calls`, `${selectedExtension.stats?.errorCalls || 0} errors`)}
+              </div>
+              <div class="card compact" style="margin-top: 12px;">
+                <div class="metric">
+                  <div class="metric-label">Описание</div>
+                  <div class="metric-sub">${escapeHtml(selectedExtension.description || '—')}</div>
+                </div>
+              </div>
+              <div class="card compact" style="margin-top: 12px;">
+                <div class="metric">
+                  <div class="metric-label">Путь</div>
+                  <div class="metric-sub">${escapeHtml(selectedExtension.directory || '—')}</div>
+                </div>
+              </div>
+              ${selectedExtension.warnings?.length ? `
+                <div class="card compact" style="margin-top: 12px;">
+                  <div class="metric">
+                    <div class="metric-label">Предупреждения</div>
+                    <div class="metric-sub">${selectedExtension.warnings.map((warning) => `<div>${escapeHtml(warning)}</div>`).join('')}</div>
+                  </div>
+                </div>
+              ` : ''}
+            ` : emptyState('Выберите плагин', 'Здесь появятся детали выбранного расширения и счётчики хуков.')}
+          </div>
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderRoles() {
   return sectionWrapper(
     'Роли',
@@ -1412,6 +1512,8 @@ function renderMain() {
       return renderProviders();
     case 'hooks':
       return renderHooks();
+    case 'extensions':
+      return renderExtensions();
     case 'roles':
       return renderRoles();
     case 'workspaces':
@@ -1457,7 +1559,7 @@ function render() {
 }
 
 async function loadProjectData() {
-  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, budget, budgetRecent, index, providers, hooks, hookHistory, roles, workspaces] = await Promise.all([
+  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, budget, budgetRecent, index, providers, hooks, hookHistory, extensions, roles, workspaces] = await Promise.all([
     apiGet('/api/v1/project/status'),
     apiGet('/api/v1/project/memory'),
     apiGet('/api/v1/tasks'),
@@ -1471,6 +1573,7 @@ async function loadProjectData() {
     apiGet('/api/v1/providers'),
     apiGet('/api/v1/hooks'),
     apiGet('/api/v1/hooks/history?limit=10'),
+    apiGet('/api/v1/extensions'),
     apiGet('/api/v1/roles'),
     apiGet('/api/v1/workspaces'),
   ]);
@@ -1488,6 +1591,7 @@ async function loadProjectData() {
   state.providers = providers.providers || [];
   state.hooks = hooks.hooks || [];
   state.hookHistory = hookHistory.history || [];
+  state.extensions = extensions.extensions || extensions || [];
   state.roles = roles.roles || [];
   state.workspaces = workspaces.workspaces || [];
 
@@ -1504,6 +1608,9 @@ async function loadProjectData() {
   }
   if (!state.selectedHookId && state.hooks.length) {
     state.selectedHookId = state.hooks[0].id;
+  }
+  if (!state.selectedExtensionName && state.extensions.length) {
+    state.selectedExtensionName = state.extensions[0].name || null;
   }
   state.currentWorkspace = state.workspaces.find((item) => item.current) || null;
 
@@ -1730,6 +1837,40 @@ async function handleAction(action, target) {
     case 'refresh-hooks':
       await reloadView('Хуки обновлены.');
       return;
+    case 'select-extension':
+      state.selectedExtensionName = target.dataset.extensionName || null;
+      render();
+      return;
+    case 'enable-extension':
+      await apiPost(`/api/v1/extensions/${encodeURIComponent(target.dataset.extensionName)}/enable`, {});
+      state.statusMessage = 'Расширение включено.';
+      await reloadView();
+      return;
+    case 'disable-extension':
+      await apiPost(`/api/v1/extensions/${encodeURIComponent(target.dataset.extensionName)}/disable`, {});
+      state.statusMessage = 'Расширение отключено.';
+      await reloadView();
+      return;
+    case 'scaffold-extension': {
+      const nameInput = document.querySelector('[data-extension-name]');
+      const hooksInput = document.querySelector('[data-extension-hooks]');
+      const globalInput = document.querySelector('[data-extension-global]');
+      const name = String(nameInput?.value || '').trim();
+      if (!name) {
+        state.statusMessage = 'Укажите имя расширения.';
+        render();
+        return;
+      }
+      const hooks = String(hooksInput?.value || '').split(',').map((value) => value.trim()).filter(Boolean);
+      const response = await apiPost('/api/v1/extensions/scaffold', {
+        name,
+        hooks,
+        global: Boolean(globalInput?.checked),
+      });
+      state.statusMessage = `Создано расширение: ${response.extension?.name || name}`;
+      await reloadView();
+      return;
+    }
     case 'refresh-all':
       await reloadView('Данные обновлены.');
       return;
@@ -1800,6 +1941,9 @@ function connectEvents() {
   source.addEventListener('budget:usage', refresh);
   source.addEventListener('budget:limit_warning', refresh);
   source.addEventListener('budget:limit_exceeded', refresh);
+  source.addEventListener('extension:loaded', refresh);
+  source.addEventListener('extension:hook', refresh);
+  source.addEventListener('extension:error', refresh);
   source.addEventListener('workbench:event', refresh);
 }
 

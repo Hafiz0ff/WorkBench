@@ -1,0 +1,11 @@
+{
+  "name": "prettier-patch",
+  "version": "0.1.0",
+  "description": "Formats patch output before applying it.",
+  "author": "WorkBench",
+  "hooks": ["pre-patch"],
+  "commands": [],
+  "permissions": ["read-code"],
+  "minWorkbenchVersion": "2.3.0",
+  "enabled": true
+}

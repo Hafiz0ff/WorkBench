@@ -18,6 +18,14 @@ async function createProjectRoot() {
   return root;
 }
 
+async function writeLocalExtension(root, name, manifest, indexJs) {
+  const directory = path.join(root, '.local-codex', 'extensions', name);
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(path.join(directory, 'workbench.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await fs.writeFile(path.join(directory, 'index.js'), `${indexJs.trimEnd()}\n`);
+  return directory;
+}
+
 async function cleanup(root) {
   await fs.rm(root, { recursive: true, force: true });
 }
@@ -120,6 +128,22 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
     taskId: task.id,
     sessionId,
   });
+  const extensionDirectory = await writeLocalExtension(root, 'dashboard-extension', {
+    name: 'dashboard-extension',
+    version: '1.0.0',
+    description: 'Dashboard extension.',
+    author: 'Codex',
+    hooks: ['pre-task'],
+    commands: ['dashboard-command'],
+    permissions: ['read-memory'],
+    minWorkbenchVersion: '0.0.0',
+    enabled: true,
+  }, `
+    export default function register(api) {
+      api.on('pre-task', async (ctx) => ({ ...ctx, prompt: \`\${ctx.prompt}|ext\` }));
+      api.registerCommand('dashboard-command', async (args) => \`dashboard:\${args.join(',')}\`);
+    }
+  `);
 
   const { url } = await startTestServer(root);
   t.after(async () => {
@@ -204,6 +228,36 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
 
   const hookHistory = await fetch(`${url}/api/v1/hooks/history?limit=5`).then((response) => response.json());
   assert.ok(Array.isArray(hookHistory.history));
+
+  const extensions = await fetch(`${url}/api/v1/extensions`).then((response) => response.json());
+  assert.ok(Array.isArray(extensions));
+  assert.equal(extensions[0].name, 'dashboard-extension');
+
+  const extensionInfo = await fetch(`${url}/api/v1/extensions/dashboard-extension`).then((response) => response.json());
+  assert.equal(extensionInfo.extension.name, 'dashboard-extension');
+  assert.ok(extensionInfo.extension.hooks.includes('pre-task'));
+
+  const extensionDisable = await fetch(`${url}/api/v1/extensions/dashboard-extension/disable`, {
+    method: 'POST',
+  }).then((response) => response.json());
+  assert.equal(extensionDisable.ok, true);
+  const disabledManifest = JSON.parse(await fs.readFile(path.join(extensionDirectory, 'workbench.json'), 'utf8'));
+  assert.equal(disabledManifest.enabled, false);
+
+  const extensionEnable = await fetch(`${url}/api/v1/extensions/dashboard-extension/enable`, {
+    method: 'POST',
+  }).then((response) => response.json());
+  assert.equal(extensionEnable.ok, true);
+  const enabledManifest = JSON.parse(await fs.readFile(path.join(extensionDirectory, 'workbench.json'), 'utf8'));
+  assert.equal(enabledManifest.enabled, true);
+
+  const scaffold = await fetch(`${url}/api/v1/extensions/scaffold`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'scaffolded-extension', hooks: ['post-task'] }),
+  }).then((response) => response.json());
+  assert.equal(scaffold.ok, true);
+  assert.equal(scaffold.extension.name, 'scaffolded-extension');
 
   const rootHtml = await fetch(`${url}/`).then((response) => response.text());
   assert.match(rootHtml, /Workbench Dashboard/);

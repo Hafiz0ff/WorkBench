@@ -11,6 +11,7 @@
 - [Phase 8](./phase-8/tz.md) - Multi-provider / OpenAI, Anthropic, Gemini - completed
 - [Phase 9](./phase-9/tz.md) - Token Budget - completed
 - [Phase 10](./phase-10/tz.md) - Vector search / semantic memory - completed
+- [Phase 11](./phase-11/tz.md) - Extension SDK / plugin system - completed
 
 ## Status
 
@@ -25,4 +26,5 @@
 - Phase 8: completed
 - Phase 9: completed
 - Phase 10: completed
+- Phase 11: completed
 - Documentation is append-only.

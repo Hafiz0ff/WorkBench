@@ -580,6 +580,17 @@ async function indexTarget(projectRoot, policy, embeddingProvider, target, { for
       stats,
       table: info,
     });
+    try {
+      const { runExtensionHook } = await import('./extensions.js');
+      await runExtensionHook(root, 'index-update', {
+        target,
+        stats,
+      }, {
+        policy,
+      }).catch(() => {});
+    } catch {
+      // Extension hooks are best-effort.
+    }
     return stats;
   } catch (error) {
     emitter.emit('index:error', {

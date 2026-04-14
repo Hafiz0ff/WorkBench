@@ -95,6 +95,12 @@ import {
   testHook,
 } from './hooks.js';
 import {
+  describeExtension,
+  listExtensions,
+  scaffoldExtension,
+  setLoadedExtensionEnabled,
+} from './extensions.js';
+import {
   ensureProjectPolicy,
   getBudgetConfig,
   readProjectPolicy,
@@ -569,6 +575,31 @@ function serializeRegistryEntry(entry) {
   };
 }
 
+function serializeExtension(entry) {
+  if (!entry) {
+    return null;
+  }
+  return {
+    name: entry.name || null,
+    version: entry.version || null,
+    description: entry.description || '',
+    author: entry.author || '',
+    hooks: Array.isArray(entry.hooks) ? [...entry.hooks] : [],
+    commands: Array.isArray(entry.commands) ? [...entry.commands] : [],
+    permissions: Array.isArray(entry.permissions) ? [...entry.permissions] : [],
+    enabled: Boolean(entry.enabled),
+    scope: entry.scope || 'local',
+    loaded: Boolean(entry.loaded),
+    directory: entry.directory || null,
+    manifestPath: entry.manifestPath || null,
+    main: entry.main || null,
+    minWorkbenchVersion: entry.minWorkbenchVersion || null,
+    stats: entry.stats || null,
+    compatible: entry.compatible !== false,
+    warnings: Array.isArray(entry.warnings) ? [...entry.warnings] : [],
+  };
+}
+
 function classifyWorkspaceChange(filename) {
   const normalized = toPosix(filename);
   if (!normalized) {
@@ -681,6 +712,13 @@ function createRuntime(projectRoot, config) {
     send(event.type || 'index:event', event);
   };
 
+  const handleExtensionEvent = (event) => {
+    if (!event || (event.projectRoot && normalizeRoot(event.projectRoot) !== root)) {
+      return;
+    }
+    send(event.type || 'extension:event', event);
+  };
+
   const subscriptions = [
     ['workbench:event', handleWorkbenchEvent],
     ['budget:usage', handleBudgetEvent],
@@ -690,6 +728,9 @@ function createRuntime(projectRoot, config) {
     ['index:progress', handleIndexEvent],
     ['index:done', handleIndexEvent],
     ['index:error', handleIndexEvent],
+    ['extension:loaded', handleExtensionEvent],
+    ['extension:hook', handleExtensionEvent],
+    ['extension:error', handleExtensionEvent],
   ];
 
   for (const [eventName, handler] of subscriptions) {
@@ -1161,6 +1202,86 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
       activeProvider: summaries.activeProvider,
       fallbackProvider: summaries.fallbackProvider,
       providers: summaries.providers.map(serializeProviderSummary),
+    });
+    return;
+  }
+
+  if (pathname === '/api/v1/extensions' && req.method === 'GET') {
+    const extensions = await listExtensions(projectRoot);
+    const detailed = [];
+    for (const extension of extensions) {
+      const info = await describeExtension(projectRoot, extension.name).catch(() => null);
+      detailed.push(serializeExtension(info || extension));
+    }
+    jsonResponse(res, 200, detailed);
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/extensions/') && req.method === 'GET') {
+    const segments = pathname.split('/').filter(Boolean);
+    const name = decodeURIComponent(segments[3] || '');
+    if (!name) {
+      jsonResponse(res, 404, { ok: false, error: 'missing_extension_name' });
+      return;
+    }
+    const info = await describeExtension(projectRoot, name);
+    if (!info) {
+      jsonResponse(res, 404, { ok: false, error: 'extension_not_found' });
+      return;
+    }
+    jsonResponse(res, 200, { extension: serializeExtension(info) });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/extensions/') && pathname.endsWith('/enable') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const name = decodeURIComponent(segments[3] || '');
+    const extension = await setLoadedExtensionEnabled(projectRoot, name, true);
+    jsonResponse(res, 200, { ok: true, extension: serializeExtension(extension) });
+    return;
+  }
+
+  if (pathname.startsWith('/api/v1/extensions/') && pathname.endsWith('/disable') && req.method === 'POST') {
+    const segments = pathname.split('/').filter(Boolean);
+    const name = decodeURIComponent(segments[3] || '');
+    const extension = await setLoadedExtensionEnabled(projectRoot, name, false);
+    jsonResponse(res, 200, { ok: true, extension: serializeExtension(extension) });
+    return;
+  }
+
+  if (pathname === '/api/v1/extensions/scaffold' && req.method === 'POST') {
+    const body = await readJsonBody(req).catch(() => ({}));
+    const name = String(body.name || '').trim();
+    if (!name) {
+      jsonResponse(res, 400, { ok: false, error: 'missing_extension_name' });
+      return;
+    }
+    const result = await scaffoldExtension(projectRoot, name, {
+      global: body.global === true,
+      hooks: Array.isArray(body.hooks) ? body.hooks : String(body.hooks || '').split(',').map((item) => item.trim()).filter(Boolean),
+    });
+    jsonResponse(res, 200, {
+      ok: true,
+      extension: serializeExtension({
+        name: result.manifest.name,
+        version: result.manifest.version,
+        description: result.manifest.description,
+        author: result.manifest.author,
+        hooks: result.manifest.hooks,
+        commands: result.manifest.commands,
+        permissions: result.manifest.permissions,
+        enabled: result.manifest.enabled,
+        scope: result.scope,
+        loaded: false,
+        directory: result.directory,
+        manifestPath: path.join(result.directory, 'workbench.json'),
+        main: 'index.js',
+        minWorkbenchVersion: result.manifest.minWorkbenchVersion,
+        stats: null,
+        warnings: [],
+      }),
+      directory: result.directory,
+      scope: result.scope,
     });
     return;
   }
