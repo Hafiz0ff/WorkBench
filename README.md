@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-2.0.0-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-2.1.0-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -15,6 +15,7 @@
 - [Drag & Drop / Перетаскивание папки](#drag-drop)
 - [Workspace / Воркспейс](#workspace)
 - [Core Commands / Основные команды](#core-commands)
+- [Budget / Токен-бюджет](#budget)
 - [Hooks / Уведомления](#hooks)
 - [`.local-codex/`](#local-codex)
 - [GUI](#gui)
@@ -422,6 +423,21 @@ app stats prune --keep-days 90
 app stats export --format csv
 ```
 
+### Budget / Токен-бюджет
+
+```bash
+app budget
+app budget --provider openai
+app budget history --days 7
+app budget set openai --daily 500000 --monthly 8000000
+app budget export --format csv
+app budget prune --keep-days 90
+```
+
+Token Budget tracks local usage for every provider, including Ollama, and can warn or block when limits are reached.
+
+Token Budget отслеживает локальное потребление для всех провайдеров, включая Ollama, и может предупреждать или блокировать запросы при достижении лимитов.
+
 ### Hooks / Уведомления
 
 ```bash
@@ -577,6 +593,7 @@ Release docs:
 - `docs/release-notes-1.3.0.md`
 - `docs/release-notes-1.4.0.md`
 - `docs/release-notes-2.0.0.md`
+- `docs/release-notes-2.1.0.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -585,4 +602,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `2.0.0`.
+- The current release line is `2.1.0`.

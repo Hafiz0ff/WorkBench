@@ -9,6 +9,7 @@
 - [Phase 6](./phase-6/tz.md) - Analytics and usage statistics - completed
 - [Phase 7](./phase-7/tz.md) - Event Hooks / Telegram notifications - completed
 - [Phase 8](./phase-8/tz.md) - Multi-provider / OpenAI, Anthropic, Gemini - completed
+- [Phase 9](./phase-9/tz.md) - Token Budget - completed
 
 ## Status
 
@@ -21,4 +22,5 @@
 - Phase 6: completed
 - Phase 7: completed
 - Phase 8: completed
+- Phase 9: completed
 - Documentation is append-only.

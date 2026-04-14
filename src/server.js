@@ -73,6 +73,12 @@ import {
   refreshStats,
 } from './stats.js';
 import {
+  getCache as getBudgetCache,
+  listUsageEntries as listBudgetUsageEntries,
+  refreshCache as refreshBudgetCache,
+  pruneUsage as pruneBudgetUsage,
+} from './budget.js';
+import {
   getHookHistory,
   listHooks,
   setHookEnabled,
@@ -80,6 +86,7 @@ import {
 } from './hooks.js';
 import {
   ensureProjectPolicy,
+  getBudgetConfig,
   readProjectPolicy,
   writeProjectPolicy,
 } from './policy.js';
@@ -650,7 +657,23 @@ function createRuntime(projectRoot, config) {
     send('workbench:event', event);
   };
 
-  emitter.on('workbench:event', handleWorkbenchEvent);
+  const handleBudgetEvent = (event) => {
+    if (!event || (event.projectRoot && normalizeRoot(event.projectRoot) !== root)) {
+      return;
+    }
+    send(event.type || 'budget:event', event);
+  };
+
+  const subscriptions = [
+    ['workbench:event', handleWorkbenchEvent],
+    ['budget:usage', handleBudgetEvent],
+    ['budget:limit_warning', handleBudgetEvent],
+    ['budget:limit_exceeded', handleBudgetEvent],
+  ];
+
+  for (const [eventName, handler] of subscriptions) {
+    emitter.on(eventName, handler);
+  }
 
   const watchPaths = [root];
   for (const watchPath of watchPaths) {
@@ -676,6 +699,7 @@ function createRuntime(projectRoot, config) {
     stopHeartbeat,
     watcherHandles,
     signalHandlers: [],
+    subscriptions,
     shuttingDown: false,
   };
   startHeartbeat();
@@ -709,9 +733,9 @@ async function closeRuntime(projectRoot) {
       // ignore
     }
   }
-  if (runtime.handleWorkbenchEvent) {
+  for (const [eventName, handler] of runtime.subscriptions || []) {
     try {
-      emitter.off('workbench:event', runtime.handleWorkbenchEvent);
+      emitter.off(eventName, handler);
     } catch {
       // ignore
     }
@@ -932,6 +956,54 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
       reverse: true,
     });
     jsonResponse(res, 200, { events });
+    return;
+  }
+
+  if (pathname === '/api/v1/budget' && req.method === 'GET') {
+    const policy = getBudgetConfig(await readProjectPolicy(projectRoot));
+    const cache = await getBudgetCache(projectRoot);
+    jsonResponse(res, 200, {
+      cache,
+      limits: policy.limits,
+      pricing: policy.pricing,
+      enabled: policy.enabled,
+      onExceed: policy.onExceed,
+    });
+    return;
+  }
+
+  if (pathname === '/api/v1/budget/refresh' && req.method === 'POST') {
+    const cache = await refreshBudgetCache(projectRoot);
+    jsonResponse(res, 200, { ok: true, cache });
+    return;
+  }
+
+  if (pathname === '/api/v1/budget/history' && req.method === 'GET') {
+    const days = Math.max(1, Number(searchParams.get('days') || 30));
+    const provider = searchParams.get('provider') || null;
+    const cache = await getBudgetCache(projectRoot);
+    const daily = Array.isArray(cache.daily) ? cache.daily.slice(-days) : [];
+    const result = provider
+      ? daily.map((entry) => ({
+        date: entry.date,
+        provider,
+        total: Number(entry?.[provider]) || 0,
+        [provider]: Number(entry?.[provider]) || 0,
+      }))
+      : daily;
+    jsonResponse(res, 200, { daily: result });
+    return;
+  }
+
+  if (pathname === '/api/v1/budget/recent' && req.method === 'GET') {
+    const provider = searchParams.get('provider') || null;
+    const days = Number(searchParams.get('days') || 0) || null;
+    const entries = await listBudgetUsageEntries(projectRoot, {
+      limit: 50,
+      provider,
+      days,
+    });
+    jsonResponse(res, 200, { entries: entries.slice(-50).reverse() });
     return;
   }
 
@@ -1234,6 +1306,13 @@ async function cleanupProject(projectRoot) {
     for (const res of runtime.clients || []) {
       try {
         res.end();
+      } catch {
+        // ignore
+      }
+    }
+    for (const [eventName, handler] of runtime.subscriptions || []) {
+      try {
+        emitter.off(eventName, handler);
       } catch {
         // ignore
       }

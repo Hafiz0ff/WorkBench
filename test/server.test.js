@@ -10,6 +10,7 @@ import { DEFAULT_PROVIDER_CONFIG, setProviderApiKey, writeProvidersConfig, readP
 import { startServer, stopServer } from '../src/server.js';
 import { setCurrentTask } from '../src/tasks.js';
 import { trackEvent } from '../src/stats.js';
+import { trackUsage } from '../src/budget.js';
 
 async function createProjectRoot() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-server-'));
@@ -111,6 +112,14 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
     promptTokens: 200,
     completionTokens: 50,
   });
+  await trackUsage(root, {
+    provider: 'openai',
+    model: 'gpt-4o',
+    promptTokens: 200,
+    completionTokens: 50,
+    taskId: task.id,
+    sessionId,
+  });
 
   const { url } = await startTestServer(root);
   t.after(async () => {
@@ -176,6 +185,18 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   const statsEvents = await fetch(`${url}/api/v1/stats/events?limit=10`).then((response) => response.json());
   assert.ok(Array.isArray(statsEvents.events));
   assert.ok(statsEvents.events.length >= 1);
+
+  const budget = await fetch(`${url}/api/v1/budget`).then((response) => response.json());
+  assert.ok(budget.cache);
+  assert.ok(budget.limits);
+  assert.equal(budget.enabled, true);
+
+  const budgetHistory = await fetch(`${url}/api/v1/budget/history?days=7`).then((response) => response.json());
+  assert.ok(Array.isArray(budgetHistory.daily));
+
+  const budgetRecent = await fetch(`${url}/api/v1/budget/recent?limit=5`).then((response) => response.json());
+  assert.ok(Array.isArray(budgetRecent.entries));
+  assert.ok(JSON.stringify(budgetRecent).includes('gpt-4o'));
 
   const hooks = await fetch(`${url}/api/v1/hooks`).then((response) => response.json());
   assert.ok(Array.isArray(hooks.hooks));

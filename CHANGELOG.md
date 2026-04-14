@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0
+- Added Token Budget tracking with local usage logs, cached aggregation, and per-provider/per-model reporting.
+- Introduced CLI budget commands for reporting, exporting, pruning, and adjusting token limits.
+- Added budget charts and live usage views to the web dashboard with SSE updates.
+- Wired budget checks and usage tracking into agent, auto mode, provider completion, and summary generation flows.
+
 ## 2.0.0
 - Final release of the roadmap: Ollama, OpenAI, Anthropic, and Gemini now share a unified provider registry and fallback flow.
 - Added per-provider model selection, health checks, and secret-backed API key storage.

@@ -34,7 +34,7 @@ import {
   readProjectState,
   updateProjectState,
 } from './memory.js';
-import { ensureProjectPolicy, getPolicyPath, readProjectPolicy } from './policy.js';
+import { ensureProjectPolicy, getPolicyPath, readProjectPolicy, writeProjectPolicy } from './policy.js';
 import {
   ensureTaskWorkspace,
   createTask,
@@ -130,6 +130,17 @@ import {
   refreshStats,
 } from './stats.js';
 import {
+  checkLimit as checkBudgetLimit,
+  exportCSV as exportBudgetCSV,
+  formatReport as formatBudgetReport,
+  formatTokens as formatBudgetTokens,
+  getCache as getBudgetCache,
+  listUsageEntries as listBudgetUsageEntries,
+  pruneUsage as pruneBudgetUsage,
+  refreshCache as refreshBudgetCache,
+  summarizeByModel as summarizeBudgetByModel,
+} from './budget.js';
+import {
   addHook,
   getHookHistory as getHooksHistory,
   initHooks,
@@ -213,6 +224,14 @@ function parseOptions(argv) {
       options.limit = Number(argv[++i]);
       continue;
     }
+    if (value === '--days') {
+      options.days = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--period') {
+      options.period = argv[++i];
+      continue;
+    }
     if (value === '--section') {
       options.section = argv[++i];
       continue;
@@ -231,6 +250,18 @@ function parseOptions(argv) {
     }
     if (value === '--keep-days') {
       options.keepDays = Number(argv[++i]);
+      continue;
+    }
+    if (value === '--daily') {
+      options.daily = argv[++i];
+      continue;
+    }
+    if (value === '--weekly') {
+      options.weekly = argv[++i];
+      continue;
+    }
+    if (value === '--monthly') {
+      options.monthly = argv[++i];
       continue;
     }
     if (value === '--task') {
@@ -1719,6 +1750,41 @@ async function resolveStatsExportPath(basePath, format) {
   return resolved;
 }
 
+async function resolveBudgetExportPath(basePath, format) {
+  const extension = format === 'csv' ? '.csv' : '.json';
+  const defaultName = `workbench-budget${extension}`;
+  if (!basePath) {
+    return path.join(process.cwd(), defaultName);
+  }
+  const resolved = path.resolve(basePath);
+  try {
+    const info = await stat(resolved);
+    if (info.isDirectory()) {
+      return path.join(resolved, defaultName);
+    }
+  } catch {
+    // ignore
+  }
+  if (resolved.endsWith(path.sep)) {
+    return path.join(resolved, defaultName);
+  }
+  return resolved;
+}
+
+function parseBudgetLimitValue(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || String(value).trim().toLowerCase() === 'null') {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`Неверный лимит токенов: ${value}`);
+  }
+  return Math.floor(parsed);
+}
+
 async function handleStatsCommand(subcommand, options, t, locale) {
   const projectRoot = process.cwd();
 
@@ -1758,6 +1824,135 @@ async function handleStatsCommand(subcommand, options, t, locale) {
     return;
   }
   console.log(formatStatsReport(stats, { section: options.section || 'all' }));
+}
+
+async function handleBudgetCommand(subcommand, options, t, locale) {
+  const projectRoot = process.cwd();
+  const policy = await readProjectPolicy(projectRoot);
+  const budget = policy.budget || {};
+
+  if (subcommand === 'refresh') {
+    const cache = await refreshBudgetCache(projectRoot);
+    console.log('Бюджет обновлён.');
+    console.log(`Сгенерировано: ${formatDate(cache.generatedAt, locale)}`);
+    return;
+  }
+
+  if (subcommand === 'reset') {
+    const cache = await refreshBudgetCache(projectRoot, {
+      provider: options.provider || null,
+      days: options.days || null,
+      from: options.from || null,
+      to: options.to || null,
+    });
+    console.log('Кэш бюджета сброшен.');
+    console.log(`Сгенерировано: ${formatDate(cache.generatedAt, locale)}`);
+    return;
+  }
+
+  if (subcommand === 'prune') {
+    const keepDays = Number.isFinite(options.keepDays) ? options.keepDays : 90;
+    const result = await pruneBudgetUsage(projectRoot, keepDays);
+    console.log(`Удалено записей: ${result.removed}`);
+    console.log(`Осталось: ${result.kept}`);
+    return;
+  }
+
+  if (subcommand === 'export') {
+    const format = String(options.format || 'csv').trim().toLowerCase() === 'json' ? 'json' : 'csv';
+    const outputPath = await resolveBudgetExportPath(options.output || null, format);
+    const content = format === 'csv'
+      ? `${await exportBudgetCSV(projectRoot, {
+        provider: options.provider || null,
+        days: options.days || null,
+        from: options.from || null,
+        to: options.to || null,
+      })}\n`
+      : `${JSON.stringify(await getBudgetCache(projectRoot), null, 2)}\n`;
+    await writeFile(outputPath, content, 'utf8');
+    console.log(`Бюджет экспортирован: ${outputPath}`);
+    return;
+  }
+
+  if (subcommand === 'set') {
+    const provider = String(options._[0] || options.provider || '').trim().toLowerCase();
+    if (!provider) {
+      throw new Error('Укажите провайдера: app budget set <provider> --daily <n> --weekly <n> --monthly <n>');
+    }
+    const next = {
+      ...policy,
+      budget: {
+        ...(budget || {}),
+        limits: {
+          ...(budget.limits || {}),
+          [provider]: {
+            ...(budget.limits?.[provider] || {}),
+          },
+        },
+      },
+    };
+    if (options.daily !== undefined) {
+      next.budget.limits[provider].daily = parseBudgetLimitValue(options.daily);
+    }
+    if (options.weekly !== undefined) {
+      next.budget.limits[provider].weekly = parseBudgetLimitValue(options.weekly);
+    }
+    if (options.monthly !== undefined) {
+      next.budget.limits[provider].monthly = parseBudgetLimitValue(options.monthly);
+    }
+    await writeProjectPolicy(projectRoot, next);
+    console.log(`Лимиты ${provider} обновлены:`);
+    console.log(`  daily:   ${formatBudgetTokens(next.budget.limits[provider].daily)}`);
+    console.log(`  weekly:  ${formatBudgetTokens(next.budget.limits[provider].weekly)}`);
+    console.log(`  monthly: ${formatBudgetTokens(next.budget.limits[provider].monthly)}`);
+    return;
+  }
+
+  const cache = await getBudgetCache(projectRoot);
+  if (options.json) {
+    console.log(JSON.stringify({
+      cache,
+      limits: budget.limits || null,
+      pricing: budget.pricing || null,
+      enabled: budget.enabled !== false,
+      onExceed: budget.onExceed || 'warn',
+    }, null, 2));
+    return;
+  }
+
+  if (subcommand === 'history') {
+    const days = Number.isFinite(options.days) && options.days > 0 ? Math.floor(options.days) : 7;
+    const provider = options.provider || null;
+    const daily = Array.isArray(cache.daily) ? cache.daily.slice(-days) : [];
+    console.log('Token Budget — history');
+    console.log('─────────────────────────────────────────────────────────────────');
+    for (const entry of daily) {
+      if (provider) {
+        const providerValue = Number(entry?.[provider]) || 0;
+        console.log(`${entry.date}   ${formatBudgetTokens(providerValue)}   (${provider}: ${formatBudgetTokens(providerValue)})`);
+        continue;
+      }
+      const parts = Object.keys(cache.byProvider || {}).map((name) => `${name}: ${formatBudgetTokens(entry?.[name] || 0)}`);
+      console.log(`${entry.date}   ${formatBudgetTokens(entry.total)}   (${parts.join('  ')})`);
+    }
+    return;
+  }
+
+  const provider = options.provider || null;
+  const entries = provider
+    ? await listBudgetUsageEntries(projectRoot, {
+      provider,
+      days: options.days || null,
+      from: options.from || null,
+      to: options.to || null,
+    })
+    : [];
+  console.log(formatBudgetReport(cache, budget.limits || {}, {
+    provider,
+    period: options.period || 'all',
+    entries,
+    showCost: options.showCost === true,
+  }));
 }
 
 async function handleTestCommand(subcommand, options, t, locale) {
@@ -2970,6 +3165,13 @@ async function main() {
 
   if (command === 'hooks') {
     await handleHooksCommand(subcommand, options, t);
+    return;
+  }
+
+  if (command === 'budget') {
+    const budgetSubcommand = subcommand && subcommand.startsWith('-') ? null : subcommand;
+    const budgetOptions = budgetSubcommand ? options : parseOptions([subcommand, ...rest].filter((value) => value !== undefined));
+    await handleBudgetCommand(budgetSubcommand, budgetOptions, t, locale);
     return;
   }
 

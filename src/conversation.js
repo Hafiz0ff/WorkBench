@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeRoot, resolveWithinRoot } from './security.js';
+import { trackEvent } from './stats.js';
+import { checkLimit, createBudgetError, trackUsage } from './budget.js';
+import { readProjectPolicy } from './policy.js';
 
 const CONVERSATION_FILE_NAME = 'conversation.jsonl';
 const CONVERSATION_SUMMARY_FILE_NAME = 'conversation-summary.md';
@@ -18,6 +21,20 @@ function randomToken(length = 4) {
 function formatDateKey(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   return date.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function deriveProjectRootFromTaskDir(taskDir) {
+  const root = normalizeTaskDir(taskDir);
+  return path.resolve(root, '..', '..', '..', '..');
+}
+
+function estimateTokens(text) {
+  const value = String(text || '');
+  return Math.max(1, Math.ceil(value.length / 4));
+}
+
+function estimateMessageTokens(messages) {
+  return estimateTokens(JSON.stringify(messages || []));
 }
 
 export function createSessionId(date = new Date()) {
@@ -254,18 +271,39 @@ async function generateSummaryText({ taskDir, history, provider, model, locale =
   const userPrompt = locale === 'en'
     ? `Conversation transcript:\n\n${transcript}`
     : `Транскрипт диалога:\n\n${transcript}`;
+  const projectRoot = deriveProjectRootFromTaskDir(taskDir);
 
   if (provider && typeof provider.chat === 'function') {
     try {
+      const budgetCheck = await checkLimit(projectRoot, provider?.name || 'unknown');
+      const policy = await readProjectPolicy(projectRoot).catch(() => null);
+      if (!budgetCheck.ok && policy?.budget?.onExceed === 'block') {
+        throw createBudgetError('Token budget exceeded.', budgetCheck.exceeded);
+      }
       let content = '';
-      for await (const chunk of provider.chat([
+      const messages = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
-      ], { model })) {
+      ];
+      for await (const chunk of provider.chat(messages, { model })) {
         content += chunk;
       }
       const trimmed = content.trim();
       if (trimmed) {
+        void trackUsage(projectRoot, {
+          provider: provider?.name || 'unknown',
+          model: model || provider?.defaultModel || null,
+          promptTokens: estimateMessageTokens(messages),
+          completionTokens: estimateTokens(trimmed),
+          estimated: true,
+        }).catch(() => {});
+        void trackEvent(projectRoot, {
+          type: 'provider.request',
+          provider: provider?.name || 'unknown',
+          model: model || provider?.defaultModel || null,
+          promptTokens: estimateMessageTokens(messages),
+          completionTokens: estimateTokens(trimmed),
+        }).catch(() => {});
         return trimmed;
       }
     } catch {

@@ -6,6 +6,8 @@ dist/
 .local-codex/
 .local-codex/events.jsonl
 .local-codex/stats.json
+.local-codex/token-usage.jsonl
+.local-codex/budget-cache.json
 .local-codex/test-runs.jsonl
 .local-codex/test-runs/
 .local-codex/hook-history.jsonl

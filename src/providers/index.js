@@ -5,6 +5,8 @@ import { readProjectState, updateProjectState } from '../memory.js';
 import { createProviderError } from './shared.js';
 import { resolveSecretValue, setSecretValue } from '../secrets.js';
 import { emitter } from '../events.js';
+import { trackEvent } from '../stats.js';
+import { trackUsage } from '../budget.js';
 
 const PROVIDERS_FILE_NAME = 'providers.json';
 const DEFAULT_PROVIDER_NAME = 'ollama';
@@ -220,7 +222,27 @@ export async function completeWithFallback(projectRoot, messages, options = {}) 
   const fallbackName = config.fallback || DEFAULT_PROVIDER_NAME;
   const provider = await getProvider(root, activeName);
   try {
-    return await provider.complete(messages, options);
+    const result = await provider.complete(messages, options);
+    void trackUsage(root, {
+      provider: provider.name,
+      model: result?.model || options.model || provider.defaultModel || null,
+      promptTokens: result?.usage?.promptTokens ?? null,
+      completionTokens: result?.usage?.completionTokens ?? null,
+      totalTokens: result?.usage?.totalTokens ?? null,
+      taskId: options.taskId || null,
+      sessionId: options.sessionId || null,
+    }).catch(() => {});
+    void trackEvent(root, {
+      type: 'provider.request',
+      provider: provider.name,
+      model: result?.model || options.model || provider.defaultModel || null,
+      promptTokens: result?.usage?.promptTokens ?? null,
+      completionTokens: result?.usage?.completionTokens ?? null,
+      totalTokens: result?.usage?.totalTokens ?? null,
+      taskId: options.taskId || null,
+      sessionId: options.sessionId || null,
+    }).catch(() => {});
+    return result;
   } catch (error) {
     if (!fallbackName || fallbackName === activeName || !isFallbackable(error)) {
       throw error;
@@ -233,7 +255,27 @@ export async function completeWithFallback(projectRoot, messages, options = {}) 
       to: fallbackName,
       reason: error?.message || String(error),
     });
-    return fallbackProvider.complete(messages, options);
+    const result = await fallbackProvider.complete(messages, options);
+    void trackUsage(root, {
+      provider: fallbackProvider.name,
+      model: result?.model || options.model || fallbackProvider.defaultModel || null,
+      promptTokens: result?.usage?.promptTokens ?? null,
+      completionTokens: result?.usage?.completionTokens ?? null,
+      totalTokens: result?.usage?.totalTokens ?? null,
+      taskId: options.taskId || null,
+      sessionId: options.sessionId || null,
+    }).catch(() => {});
+    void trackEvent(root, {
+      type: 'provider.request',
+      provider: fallbackProvider.name,
+      model: result?.model || options.model || fallbackProvider.defaultModel || null,
+      promptTokens: result?.usage?.promptTokens ?? null,
+      completionTokens: result?.usage?.completionTokens ?? null,
+      totalTokens: result?.usage?.totalTokens ?? null,
+      taskId: options.taskId || null,
+      sessionId: options.sessionId || null,
+    }).catch(() => {});
+    return result;
   }
 }
 

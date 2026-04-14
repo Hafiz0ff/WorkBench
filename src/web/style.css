@@ -704,6 +704,58 @@ a {
   font-size: 0.82rem;
 }
 
+.budget-card {
+  display: grid;
+  gap: 12px;
+}
+
+.budget-card .metric-value {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.budget-muted {
+  color: var(--quiet);
+  font-size: 0.82rem;
+}
+
+.budget-detail {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.budget-chart {
+  min-height: 220px;
+}
+
+.budget-table {
+  display: grid;
+  gap: 8px;
+}
+
+.budget-table-head,
+.budget-table-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 1.1fr 0.7fr 0.9fr 0.7fr 0.9fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.budget-table-head {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.budget-table-row {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-variant-numeric: tabular-nums;
+}
+
 .section-stack {
   display: grid;
   gap: 14px;
@@ -782,6 +834,11 @@ a {
 
   .progress-row {
     grid-template-columns: 1fr;
+  }
+
+  .budget-table-head,
+  .budget-table-row {
+    grid-template-columns: 1fr 1fr;
   }
 
   .header {

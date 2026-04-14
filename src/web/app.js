@@ -11,6 +11,8 @@ const state = {
   patchHistory: [],
   testsHistory: [],
   stats: null,
+  budget: null,
+  budgetRecent: [],
   hooks: [],
   hookHistory: [],
   providers: [],
@@ -33,6 +35,7 @@ const sectionMeta = {
   patches: { label: 'Патчи', icon: '≡', subtitle: 'pending diff' },
   tests: { label: 'Тесты', icon: '✓', subtitle: 'прогоны и логи' },
   stats: { label: 'Статистика', icon: '✦', subtitle: 'аналитика использования' },
+  budget: { label: 'Бюджет', icon: '¤', subtitle: 'token usage и лимиты' },
   hooks: { label: 'Хуки', icon: '⚑', subtitle: 'уведомления и алерты' },
   memory: { label: 'Память', icon: '◫', subtitle: 'project context' },
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
@@ -305,6 +308,87 @@ function renderProgressBar(value, max, options = {}) {
   `;
 }
 
+function formatBudgetTokens(value) {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return '—';
+  }
+  if (number < 1000) {
+    return String(Math.round(number));
+  }
+  if (number < 1000000) {
+    return `${Number((number / 1000).toFixed(1)).toString().replace(/\.0$/, '')}K`;
+  }
+  return `${Number((number / 1000000).toFixed(2)).toString().replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}M`;
+}
+
+function budgetProgressColor(ratio) {
+  if (ratio > 0.85) {
+    return 'var(--danger)';
+  }
+  if (ratio >= 0.6) {
+    return 'var(--warn)';
+  }
+  return 'var(--accent)';
+}
+
+function providerColor(name) {
+  const palette = {
+    openai: '#4f98a3',
+    anthropic: '#8b5cf6',
+    gemini: '#5b8def',
+    ollama: '#8a8f99',
+    total: '#6b7280',
+  };
+  return palette[String(name || '').toLowerCase()] || 'var(--accent)';
+}
+
+function renderStackedBarChart(data, providers, options = {}) {
+  const items = Array.isArray(data) ? data : [];
+  const inferredKeys = items.length
+    ? Object.keys(items[0]).filter((key) => !['date', 'hour', 'total'].includes(key))
+    : [];
+  const keys = Array.isArray(providers) && providers.filter(Boolean).length
+    ? providers.filter(Boolean)
+    : inferredKeys;
+  const width = Number(options.width) || 680;
+  const height = Number(options.height) || 200;
+  const maxBars = Number.isFinite(Number(options.maxBars)) ? Math.max(1, Number(options.maxBars)) : 14;
+  const slice = items.slice(-maxBars);
+  const maxValue = Math.max(1, ...slice.map((item) => keys.reduce((sum, key) => sum + (Number(item[key]) || 0), 0)));
+  const barWidth = slice.length ? width / slice.length : width;
+
+  return `
+    <svg class="chart budget-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" width="100%" height="${height}">
+      <line x1="0" y1="${height - 20}" x2="${width}" y2="${height - 20}" stroke="var(--line-strong)" />
+      ${slice.map((item, index) => {
+        const x = Math.round(index * barWidth);
+        let remaining = height - 22;
+        const total = keys.reduce((sum, key) => sum + (Number(item[key]) || 0), 0);
+        const segments = keys.map((key) => {
+          const value = Number(item[key]) || 0;
+          if (!value) {
+            return '';
+          }
+          const segmentHeight = Math.max(2, Math.round((value / maxValue) * (height - 34)));
+          remaining -= segmentHeight;
+          return `<rect x="${x + 6}" y="${remaining}" width="${Math.max(4, barWidth - 12)}" height="${segmentHeight}" rx="5" fill="${providerColor(key)}"></rect>`;
+        }).join('');
+        return `
+          <g>
+            ${segments}
+            <title>${escapeHtml(`${item.date || item.hour || ''}: ${formatBudgetTokens(total)}`)}</title>
+            <text x="${x + (barWidth / 2)}" y="${height - 6}" text-anchor="middle">${escapeHtml(String(item.date || item.hour || '').slice(-5))}</text>
+          </g>
+        `;
+      }).join('')}
+    </svg>
+  `;
+}
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
     headers: {
@@ -349,6 +433,7 @@ function navMarkup() {
     patches: state.patchHistory.length,
     tests: state.testsHistory.length,
     stats: state.stats ? 1 : 0,
+    budget: state.budget ? 1 : 0,
     hooks: state.hooks.length,
     memory: state.memory?.summaries?.length || 0,
     providers: state.providers.length,
@@ -764,6 +849,115 @@ function renderStats() {
   );
 }
 
+function renderBudget() {
+  const cache = state.budget?.cache || null;
+  const limits = state.budget?.limits || {};
+  const providerEntries = Object.entries(cache?.byProvider || {});
+  const recent = Array.isArray(state.budgetRecent) ? state.budgetRecent : [];
+  const hourlyKeys = providerEntries.map(([name]) => name);
+  const dailyKeys = providerEntries.map(([name]) => name);
+  const totalDaily = cache?.total?.today?.total || 0;
+  const totalDailyLimit = limits?.total?.daily ?? null;
+  const totalRatio = totalDailyLimit ? totalDaily / totalDailyLimit : 0;
+
+  return sectionWrapper(
+    'Бюджет',
+    'Token usage по провайдерам, лимиты и последние запросы.',
+    [
+      buttonMarkup('Обновить бюджет', 'refresh-budget', '', 'primary'),
+      buttonMarkup('Обновить всё', 'refresh-all', '', ''),
+    ].join(''),
+    `
+      <div class="grid cards">
+        ${providerEntries.map(([name, stats]) => {
+          const limit = limits?.[name] || {};
+          const dailyUsed = stats?.today?.total || 0;
+          const dailyLimit = limit.daily;
+          const monthlyUsed = stats?.month?.total || 0;
+          const monthlyLimit = limit.monthly;
+          const ratio = dailyLimit ? (dailyUsed / dailyLimit) : 0;
+          const color = dailyLimit === null || dailyLimit === undefined ? 'rgba(255, 255, 255, 0.18)' : budgetProgressColor(ratio);
+          return `
+            <div class="card budget-card">
+              <div class="metric">
+                <div class="metric-label">${escapeHtml(name)}</div>
+                <div class="metric-value">${formatBudgetTokens(dailyUsed)} ${dailyLimit === null || dailyLimit === undefined ? '<span class="budget-muted">no limit</span>' : `<span class="budget-muted">/ ${formatBudgetTokens(dailyLimit)}</span>`}</div>
+                <div class="metric-sub">Сегодня · ${stats?.today?.requests || 0} запросов</div>
+              </div>
+              ${renderProgressBar(dailyLimit === null || dailyLimit === undefined ? 0 : dailyUsed, dailyLimit === null || dailyLimit === undefined ? 1 : dailyLimit, {
+                label: 'daily',
+                color,
+                showPercent: true,
+              })}
+              <div class="budget-detail">
+                <span>Месяц: ${formatBudgetTokens(monthlyUsed)}${monthlyLimit === null || monthlyLimit === undefined ? ' / no limit' : ` / ${formatBudgetTokens(monthlyLimit)}`}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+        <div class="card budget-card budget-card-total">
+          <div class="metric">
+            <div class="metric-label">TOTAL</div>
+            <div class="metric-value">${formatBudgetTokens(totalDaily)} ${totalDailyLimit === null || totalDailyLimit === undefined ? '<span class="budget-muted">no limit</span>' : `<span class="budget-muted">/ ${formatBudgetTokens(totalDailyLimit)}</span>`}</div>
+            <div class="metric-sub">Сегодня · ${cache?.total?.today?.requests || 0} запросов</div>
+          </div>
+          ${renderProgressBar(totalDailyLimit === null || totalDailyLimit === undefined ? 0 : totalDaily, totalDailyLimit === null || totalDailyLimit === undefined ? 1 : totalDailyLimit, {
+            label: 'daily',
+            color: totalDailyLimit === null || totalDailyLimit === undefined ? 'rgba(255, 255, 255, 0.18)' : budgetProgressColor(totalRatio),
+            showPercent: true,
+          })}
+          <div class="budget-detail">
+            <span>Месяц: ${formatBudgetTokens(cache?.total?.month?.total || 0)}${limits?.total?.monthly === null || limits?.total?.monthly === undefined ? ' / no limit' : ` / ${formatBudgetTokens(limits.total.monthly)}`}</span>
+          </div>
+        </div>
+      </div>
+      <div class="grid two-up" style="margin-top: 16px;">
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">По часам (48ч)</h2></div>
+          <div class="card-body">
+            ${renderStackedBarChart(cache?.hourly || [], hourlyKeys, { maxBars: 48, height: 220 })}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h2 class="card-title">По дням (90д)</h2></div>
+          <div class="card-body">
+            ${renderStackedBarChart(cache?.daily || [], dailyKeys, { maxBars: 30, height: 220 })}
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <div class="card-header"><h2 class="card-title">Последние запросы</h2></div>
+        <div class="card-body">
+          ${recent.length ? `
+            <div class="budget-table">
+              <div class="budget-table-head">
+                <span>Время</span>
+                <span>Провайдер</span>
+                <span>Модель</span>
+                <span>Prompt</span>
+                <span>Completion</span>
+                <span>Total</span>
+                <span>Task</span>
+              </div>
+              ${recent.map((entry) => `
+                <div class="budget-table-row">
+                  <span>${escapeHtml(formatDate(entry.ts))}</span>
+                  <span><span class="tiny-badge">${escapeHtml(entry.provider || '—')}</span></span>
+                  <span>${escapeHtml(entry.model || '—')}</span>
+                  <span>${escapeHtml(formatBudgetTokens(entry.promptTokens))}</span>
+                  <span>${escapeHtml(formatBudgetTokens(entry.completionTokens))}</span>
+                  <span>${escapeHtml(formatBudgetTokens(entry.totalTokens))}</span>
+                  <span>${escapeHtml(entry.taskId || '—')}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : emptyState('Запросов пока нет', 'После LLM-вызовов здесь появятся последние записи token usage.')}
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderMemory() {
   const entries = [
     ['Обзор проекта', state.memory?.overview],
@@ -1081,6 +1275,8 @@ function renderMain() {
       return renderTests();
     case 'stats':
       return renderStats();
+    case 'budget':
+      return renderBudget();
     case 'memory':
       return renderMemory();
     case 'providers':
@@ -1132,7 +1328,7 @@ function render() {
 }
 
 async function loadProjectData() {
-  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, providers, hooks, hookHistory, roles, workspaces] = await Promise.all([
+  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, budget, budgetRecent, providers, hooks, hookHistory, roles, workspaces] = await Promise.all([
     apiGet('/api/v1/project/status'),
     apiGet('/api/v1/project/memory'),
     apiGet('/api/v1/tasks'),
@@ -1140,6 +1336,8 @@ async function loadProjectData() {
     apiGet('/api/v1/patches/history?limit=20'),
     apiGet('/api/v1/tests/history?limit=20'),
     apiGet('/api/v1/stats'),
+    apiGet('/api/v1/budget'),
+    apiGet('/api/v1/budget/recent?limit=50'),
     apiGet('/api/v1/providers'),
     apiGet('/api/v1/hooks'),
     apiGet('/api/v1/hooks/history?limit=10'),
@@ -1154,6 +1352,8 @@ async function loadProjectData() {
   state.patchHistory = patchHistory.patches || [];
   state.testsHistory = testsHistory.runs || [];
   state.stats = stats || null;
+  state.budget = budget || null;
+  state.budgetRecent = budgetRecent.entries || [];
   state.providers = providers.providers || [];
   state.hooks = hooks.hooks || [];
   state.hookHistory = hookHistory.history || [];
@@ -1333,6 +1533,11 @@ async function handleAction(action, target) {
       state.statusMessage = 'Статистика обновлена.';
       await reloadView();
       return;
+    case 'refresh-budget':
+      await apiPost('/api/v1/budget/refresh', {});
+      state.statusMessage = 'Бюджет обновлён.';
+      await reloadView();
+      return;
     case 'refresh-hooks':
       await reloadView('Хуки обновлены.');
       return;
@@ -1378,6 +1583,9 @@ function connectEvents() {
   source.addEventListener('project:refreshed', refresh);
   source.addEventListener('workspace:updated', refresh);
   source.addEventListener('stats:updated', refresh);
+  source.addEventListener('budget:usage', refresh);
+  source.addEventListener('budget:limit_warning', refresh);
+  source.addEventListener('budget:limit_exceeded', refresh);
   source.addEventListener('workbench:event', refresh);
 }
 

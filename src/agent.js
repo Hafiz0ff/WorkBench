@@ -3,6 +3,8 @@ import { stdin as input, stdout as output } from 'node:process';
 import { readProjectFile, writeProjectFile, listProjectFiles } from './project.js';
 import { listAllowedShellCommands, runShellCommand } from './shell.js';
 import { trackEvent } from './stats.js';
+import { checkLimit, createBudgetError, trackUsage } from './budget.js';
+import { readProjectPolicy } from './policy.js';
 
 function stripCodeFence(text) {
   const trimmed = text.trim();
@@ -120,17 +122,31 @@ function estimateMessageTokens(messages) {
   return estimateTokens(JSON.stringify(messages || []));
 }
 
-async function runModelRound({ projectRoot = null, provider, model, messages }) {
-  const content = await collectModelText(projectRoot, provider, model, messages);
+async function runModelRound({ projectRoot = null, provider, model, messages, policy = null }) {
+  const content = await collectModelText(projectRoot, provider, model, messages, { policy });
   return parseAssistantEnvelope(content);
 }
 
-async function collectModelText(projectRoot, provider, model, messages) {
+async function collectModelText(projectRoot, provider, model, messages, { policy = null } = {}) {
+  if (projectRoot) {
+    const budgetCheck = await checkLimit(projectRoot, provider?.name || 'unknown');
+    const resolvedPolicy = policy || await readProjectPolicy(projectRoot).catch(() => null);
+    if (!budgetCheck.ok && resolvedPolicy?.budget?.onExceed === 'block') {
+      throw createBudgetError('Token budget exceeded.', budgetCheck.exceeded);
+    }
+  }
   let content = '';
   for await (const chunk of provider.chat(messages, { model })) {
     content += chunk;
   }
   if (projectRoot) {
+    void trackUsage(projectRoot, {
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+      promptTokens: estimateMessageTokens(messages),
+      completionTokens: estimateTokens(content),
+      estimated: true,
+    }).catch(() => {});
     void trackEvent(projectRoot, {
       type: 'provider.request',
       provider: provider?.name || 'unknown',
@@ -149,6 +165,7 @@ export async function generatePatch({
   prompt,
   context = [],
   messages = [],
+  policy = null,
 }) {
   const payload = Array.isArray(messages) && messages.length
     ? messages
@@ -156,7 +173,7 @@ export async function generatePatch({
       { role: 'system', content: String(prompt || '').trim() },
       ...(Array.isArray(context) ? context : []),
     ].filter((message) => typeof message?.content === 'string' && message.content.trim());
-  return collectModelText(projectRoot, provider, model, payload);
+  return collectModelText(projectRoot, provider, model, payload, { policy });
 }
 
 export async function runInteractiveAgent({
@@ -195,7 +212,7 @@ export async function runInteractiveAgent({
 
     while (rounds < 8) {
       rounds += 1;
-      const assistant = await runModelRound({ projectRoot: root, provider, model, messages });
+      const assistant = await runModelRound({ projectRoot: root, provider, model, messages, policy });
       lastAssistantMessage = assistant.message || '';
       if (assistant.message) {
         console.log(`\n${assistant.message}\n`);

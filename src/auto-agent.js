@@ -18,6 +18,7 @@ import { listAllowedShellCommands } from './shell.js';
 import { composePromptLayers, BASE_SYSTEM_INSTRUCTIONS } from './prompt-composer.js';
 import { generatePatch } from './agent.js';
 import { trackEvent } from './stats.js';
+import { checkLimit, createBudgetError, trackUsage } from './budget.js';
 
 const AUTO_RUN_DIR_NAME = 'auto-runs';
 const CURRENT_AUTO_RUN_FILE = 'auto-run.json';
@@ -157,12 +158,26 @@ function parseJsonPayload(text) {
   return JSON.parse(slice);
 }
 
-async function collectProviderText(projectRoot, provider, messages, model) {
+async function collectProviderText(projectRoot, provider, messages, model, { policy = null } = {}) {
+  if (projectRoot) {
+    const budgetCheck = await checkLimit(projectRoot, provider?.name || 'unknown');
+    const resolvedPolicy = policy || await readProjectPolicy(projectRoot).catch(() => null);
+    if (!budgetCheck.ok && resolvedPolicy?.budget?.onExceed === 'block') {
+      throw createBudgetError('Token budget exceeded.', budgetCheck.exceeded);
+    }
+  }
   let content = '';
   for await (const chunk of provider.chat(messages, { model })) {
     content += chunk;
   }
   if (projectRoot) {
+    void trackUsage(projectRoot, {
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+      promptTokens: Math.max(1, Math.ceil(JSON.stringify(messages || []).length / 4)),
+      completionTokens: Math.max(1, Math.ceil(content.length / 4)),
+      estimated: true,
+    }).catch(() => {});
     void trackEvent(projectRoot, {
       type: 'provider.request',
       provider: provider?.name || 'unknown',
@@ -342,7 +357,7 @@ async function updateRunStep(taskFolder, runId, stepId, patch) {
   return next;
 }
 
-async function summarizePhase({ provider, model, task, results, request, memorySummary, taskContext, locale = 'ru' }) {
+async function summarizePhase({ projectRoot = null, policy = null, provider, model, task, results, request, memorySummary, taskContext, locale = 'ru' }) {
   const prompt = locale === 'en'
     ? 'Summarize the auto run in concise Markdown. Include what changed, files, tests, and blockers.'
     : 'Сделай краткое Markdown-резюме auto run. Укажи что изменено, какие файлы, тесты и блокеры.';
@@ -366,7 +381,7 @@ async function summarizePhase({ provider, model, task, results, request, memoryS
     },
   ];
   try {
-    const text = await collectProviderText(options.projectRoot || null, provider, messages, model);
+    const text = await collectProviderText(projectRoot || null, provider, messages, model, { policy });
     return text || '';
   } catch {
     return [
@@ -401,7 +416,7 @@ export async function planPhase(taskId, request, options = {}) {
   let lastError = null;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     try {
-      const response = await generatePatch({ projectRoot, provider, model, messages: planMessages });
+      const response = await generatePatch({ projectRoot, provider, model, policy, messages: planMessages });
       const parsed = parseJsonPayload(response);
       if (!Array.isArray(parsed)) {
         throw new Error('Plan response must be a JSON array.');
@@ -424,6 +439,7 @@ export async function executeStep(taskId, step, options = {}) {
   if (!task) {
     throw new Error(`Task not found: ${taskId}`);
   }
+  const policy = options.policy || await readProjectPolicy(projectRoot);
   const provider = options.provider || await getProvider(projectRoot, options.providerName || null);
   const model = options.model || provider.defaultModel;
   const retryMax = Number.isFinite(Number(options.retryMax)) ? Math.max(1, Number(options.retryMax)) : 3;
@@ -446,6 +462,7 @@ export async function executeStep(taskId, step, options = {}) {
         projectRoot,
         provider,
         model,
+        policy,
         messages: [
           { role: 'system', content: prompt },
           { role: 'user', content: request },
@@ -598,6 +615,8 @@ export async function reportPhase(taskId, runId, results, options = {}) {
   const memorySummary = options.memorySummary || await summarizeCurrentMemory(projectRoot);
   const taskContext = options.taskContext || await chooseTaskContext(task, null, options.locale || 'ru')(projectRoot);
   const summary = await summarizePhase({
+    projectRoot,
+    policy: options.policy || null,
     provider,
     model,
     task,
@@ -758,6 +777,7 @@ export async function runAuto(taskId, request, options = {}) {
 
   const summary = await reportPhase(task.id, run.runId, results, {
     projectRoot,
+    policy,
     provider,
     model,
     request,

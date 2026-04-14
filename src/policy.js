@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeRoot } from './security.js';
+import { invalidateBudgetPolicyCache } from './budget.js';
 
 const POLICY_DIR_NAME = '.local-codex';
 const POLICY_FILE_NAME = 'policy.json';
@@ -26,6 +27,60 @@ const DEFAULT_POLICY = {
     pruneAfterDays: 90,
     eventsFile: '.local-codex/events.jsonl',
     statsFile: '.local-codex/stats.json',
+  },
+  budget: {
+    enabled: true,
+    limits: {
+      openai: {
+        daily: 500000,
+        weekly: 2000000,
+        monthly: 8000000,
+      },
+      anthropic: {
+        daily: 300000,
+        weekly: 1200000,
+        monthly: 5000000,
+      },
+      gemini: {
+        daily: 1000000,
+        weekly: 4000000,
+        monthly: 15000000,
+      },
+      ollama: {
+        daily: null,
+        weekly: null,
+        monthly: null,
+      },
+      total: {
+        daily: 1000000,
+        weekly: 4000000,
+        monthly: 20000000,
+      },
+    },
+    onExceed: 'warn',
+    pricing: {
+      openai: {
+        'gpt-4o': { prompt: 2.5, completion: 10 },
+        'gpt-4o-mini': { prompt: 0.15, completion: 0.6 },
+        'gpt-4.1': { prompt: 2, completion: 8 },
+        'gpt-4.1-mini': { prompt: 0.4, completion: 1.6 },
+        'gpt-4.1-nano': { prompt: 0.1, completion: 0.4 },
+        o3: { prompt: 10, completion: 40 },
+        'o4-mini': { prompt: 1.1, completion: 4.4 },
+      },
+      anthropic: {
+        'claude-opus-4-5': { prompt: 15, completion: 75 },
+        'claude-sonnet-4-5': { prompt: 3, completion: 15 },
+        'claude-haiku-3-5': { prompt: 0.8, completion: 4 },
+      },
+      gemini: {
+        'gemini-2.5-pro': { prompt: 1.25, completion: 10 },
+        'gemini-2.5-flash': { prompt: 0.15, completion: 0.6 },
+        'gemini-2.0-flash': { prompt: 0.1, completion: 0.4 },
+        'gemini-2.0-flash-lite': { prompt: 0.04, completion: 0.15 },
+      },
+      ollama: {},
+    },
   },
   hooks: {
     enabled: false,
@@ -273,6 +328,60 @@ function normalizeApprovalMode(value) {
   return DEFAULT_POLICY.approvalMode;
 }
 
+function normalizeBudgetConfig(value = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+  const limitSections = ['openai', 'anthropic', 'gemini', 'ollama', 'total'];
+  const pricingSections = ['openai', 'anthropic', 'gemini', 'ollama'];
+  const limits = {};
+
+  for (const section of limitSections) {
+    const fallback = DEFAULT_POLICY.budget.limits[section] || {};
+    const sourceLimits = source.limits?.[section] || {};
+    limits[section] = {
+      daily: sourceLimits.daily === null
+        ? null
+        : Number.isFinite(Number(sourceLimits.daily))
+          ? Number(sourceLimits.daily)
+          : fallback.daily,
+      weekly: sourceLimits.weekly === null
+        ? null
+        : Number.isFinite(Number(sourceLimits.weekly))
+          ? Number(sourceLimits.weekly)
+          : fallback.weekly,
+      monthly: sourceLimits.monthly === null
+        ? null
+        : Number.isFinite(Number(sourceLimits.monthly))
+          ? Number(sourceLimits.monthly)
+          : fallback.monthly,
+    };
+  }
+
+  const pricing = {};
+  for (const provider of pricingSections) {
+    const fallback = DEFAULT_POLICY.budget.pricing[provider] || {};
+    const sourcePricing = source.pricing?.[provider] || {};
+    pricing[provider] = {};
+    const merged = { ...fallback, ...sourcePricing };
+    for (const [model, config] of Object.entries(merged)) {
+      pricing[provider][model] = {
+        prompt: Number.isFinite(Number(config?.prompt)) ? Number(config.prompt) : null,
+        completion: Number.isFinite(Number(config?.completion)) ? Number(config.completion) : null,
+      };
+    }
+  }
+
+  return {
+    ...DEFAULT_POLICY.budget,
+    ...source,
+    enabled: source.enabled !== false,
+    onExceed: ['warn', 'block', 'ask'].includes(String(source.onExceed || '').trim().toLowerCase())
+      ? String(source.onExceed).trim().toLowerCase()
+      : DEFAULT_POLICY.budget.onExceed,
+    limits,
+    pricing,
+  };
+}
+
 function isAutoLikeMode(mode) {
   return ['auto-safe', 'auto', 'auto-with-tests'].includes(String(mode || '').trim().toLowerCase());
 }
@@ -325,6 +434,7 @@ function normalizePolicy(policy = {}) {
         ? policy.stats.statsFile.trim()
         : DEFAULT_POLICY.stats.statsFile,
     },
+    budget: normalizeBudgetConfig(policy.budget || DEFAULT_POLICY.budget),
     hooks: {
       ...DEFAULT_POLICY.hooks,
       ...(policy.hooks || {}),
@@ -553,6 +663,7 @@ export async function writeProjectPolicy(projectRoot, policy) {
   const policyPath = buildPolicyPath(root);
   const normalized = normalizePolicy(policy);
   await atomicWriteFile(policyPath, `${JSON.stringify(normalized, null, 2)}\n`);
+  invalidateBudgetPolicyCache(root);
   return normalized;
 }
 
@@ -697,6 +808,15 @@ export function getPolicySummary(policyInput) {
   return {
     approvalMode: policy.approvalMode,
     autoMode: { ...policy.autoMode },
+    budget: {
+      ...policy.budget,
+      limits: {
+        ...(policy.budget?.limits || {}),
+      },
+      pricing: {
+        ...(policy.budget?.pricing || {}),
+      },
+    },
     testRunner: {
       ...policy.testRunner,
       runners: Array.isArray(policy.testRunner?.runners) ? [...policy.testRunner.runners] : [],
@@ -729,4 +849,8 @@ export function getAutoModeConfig(policyInput) {
 
 export function getTestRunnerConfig(policyInput) {
   return normalizePolicy(policyInput).testRunner;
+}
+
+export function getBudgetConfig(policyInput) {
+  return normalizePolicy(policyInput).budget;
 }
