@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0
+- Added semantic vector search over project memory and source code with local file-backed indexes.
+- Added `app index` and `app search` commands plus dashboard integration for index status and search.
+- Wired vector index refresh into project refresh and patch application flows.
+- Added phase 10 docs and release notes for the vector search release.
+
 ## 2.1.0
 - Added Token Budget tracking with local usage logs, cached aggregation, and per-provider/per-model reporting.
 - Introduced CLI budget commands for reporting, exporting, pruning, and adjusting token limits.

@@ -4,6 +4,7 @@ import { normalizeRoot, resolveWithinRoot } from './security.js';
 import { evaluatePathPolicy, readProjectPolicy } from './policy.js';
 import { runConfiguredTests, getTestRunnerConfig, detectRunner } from './test-runner.js';
 import { trackEvent } from './stats.js';
+import { indexIncremental, prepareEmbeddingProvider } from './indexer.js';
 
 const PATCHES_DIR_NAME = path.join('.local-codex', 'patches');
 const PENDING_PATCH_FILE = path.join('.local-codex', 'pending-change.json');
@@ -54,6 +55,22 @@ function splitLines(text) {
 
 function escapeText(value) {
   return String(value).replace(/\0/g, '\\0');
+}
+
+async function refreshVectorIndexAfterPatch(projectRoot, policy) {
+  if (!projectRoot) {
+    return;
+  }
+  const vectorIndex = policy?.vectorIndex || {};
+  if (vectorIndex.enabled === false) {
+    return;
+  }
+  try {
+    const embeddingProvider = await prepareEmbeddingProvider(projectRoot, policy);
+    await indexIncremental(projectRoot, policy, embeddingProvider);
+  } catch {
+    // Vector index refresh is best-effort.
+  }
 }
 
 function fallbackDiff(before, after) {
@@ -703,6 +720,7 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
     taskId: nextPatch.taskId || null,
     status: nextPatch.status,
   });
+  void refreshVectorIndexAfterPatch(root, options.policy || null);
 
   const pending = {
     schemaVersion: PATCH_SCHEMA_VERSION,
@@ -731,6 +749,7 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
     taskId: nextPatch.taskId || null,
     status: nextPatch.status,
   });
+  void refreshVectorIndexAfterPatch(root, options.policy || null);
 
   return {
     applied: !testOutcome.rolledBack,

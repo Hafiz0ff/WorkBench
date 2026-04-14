@@ -10,6 +10,7 @@
 - [Phase 7](./phase-7/tz.md) - Event Hooks / Telegram notifications - completed
 - [Phase 8](./phase-8/tz.md) - Multi-provider / OpenAI, Anthropic, Gemini - completed
 - [Phase 9](./phase-9/tz.md) - Token Budget - completed
+- [Phase 10](./phase-10/tz.md) - Vector search / semantic memory - completed
 
 ## Status
 
@@ -23,4 +24,5 @@
 - Phase 7: completed
 - Phase 8: completed
 - Phase 9: completed
+- Phase 10: completed
 - Documentation is append-only.

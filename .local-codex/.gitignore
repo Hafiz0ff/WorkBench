@@ -2,3 +2,4 @@ hook-history.jsonl
 hook-errors.log
 token-usage.jsonl
 budget-cache.json
+vector-index/

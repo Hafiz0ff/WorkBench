@@ -79,6 +79,16 @@ import {
   pruneUsage as pruneBudgetUsage,
 } from './budget.js';
 import {
+  dropIndex,
+  getIndexStatus,
+  indexAll,
+  indexCode,
+  indexIncremental,
+  indexMemory,
+  prepareEmbeddingProvider,
+} from './indexer.js';
+import { semanticSearch } from './search.js';
+import {
   getHookHistory,
   listHooks,
   setHookEnabled,
@@ -664,11 +674,22 @@ function createRuntime(projectRoot, config) {
     send(event.type || 'budget:event', event);
   };
 
+  const handleIndexEvent = (event) => {
+    if (!event || (event.projectRoot && normalizeRoot(event.projectRoot) !== root)) {
+      return;
+    }
+    send(event.type || 'index:event', event);
+  };
+
   const subscriptions = [
     ['workbench:event', handleWorkbenchEvent],
     ['budget:usage', handleBudgetEvent],
     ['budget:limit_warning', handleBudgetEvent],
     ['budget:limit_exceeded', handleBudgetEvent],
+    ['index:start', handleIndexEvent],
+    ['index:progress', handleIndexEvent],
+    ['index:done', handleIndexEvent],
+    ['index:error', handleIndexEvent],
   ];
 
   for (const [eventName, handler] of subscriptions) {
@@ -800,6 +821,35 @@ async function getProjectMemoryPayload(projectRoot) {
   };
 }
 
+async function refreshVectorIndex(projectRoot, policy, target = 'all', { force = false } = {}) {
+  const vectorIndex = policy?.vectorIndex || {};
+  if (vectorIndex.enabled === false) {
+    return { skipped: true, stats: null, status: await getIndexStatus(projectRoot, policy) };
+  }
+  const embeddingProvider = await prepareEmbeddingProvider(projectRoot, policy);
+  if (force) {
+    await dropIndex(projectRoot, target);
+  }
+  const stats = target === 'memory'
+    ? await indexMemory(projectRoot, policy, embeddingProvider, { force })
+    : target === 'code'
+      ? await indexCode(projectRoot, policy, embeddingProvider, { force })
+      : await indexAll(projectRoot, policy, embeddingProvider, { force });
+  const status = await getIndexStatus(projectRoot, policy);
+  return { skipped: false, stats, status, embeddingProvider };
+}
+
+async function updateVectorIndexIncremental(projectRoot, policy) {
+  const vectorIndex = policy?.vectorIndex || {};
+  if (vectorIndex.enabled === false) {
+    return { skipped: true, stats: null, status: await getIndexStatus(projectRoot, policy) };
+  }
+  const embeddingProvider = await prepareEmbeddingProvider(projectRoot, policy);
+  const stats = await indexIncremental(projectRoot, policy, embeddingProvider);
+  const status = await getIndexStatus(projectRoot, policy);
+  return { skipped: false, stats, status, embeddingProvider };
+}
+
 async function handleApiRequest(req, res, runtime, pathname, searchParams) {
   const projectRoot = runtime.root;
   const policy = runtime.policy;
@@ -833,8 +883,70 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
 
   if (pathname === '/api/v1/project/refresh' && req.method === 'POST') {
     const result = await refreshProjectMemory(projectRoot);
+    const vectorRefresh = await updateVectorIndexIncremental(projectRoot, policy).catch((error) => ({
+      skipped: true,
+      error: error?.message || String(error),
+      stats: null,
+      status: null,
+    }));
     runtime.send('project:refreshed', { root: projectRoot });
-    jsonResponse(res, 200, { ok: true, result });
+    jsonResponse(res, 200, { ok: true, result, vectorIndex: vectorRefresh.skipped ? null : vectorRefresh.stats });
+    return;
+  }
+
+  if (pathname === '/api/v1/index/status' && req.method === 'GET') {
+    const status = await getIndexStatus(projectRoot, policy);
+    jsonResponse(res, 200, status);
+    return;
+  }
+
+  if (pathname === '/api/v1/index/build' && req.method === 'POST') {
+    const body = await readJsonBody(req).catch(() => ({}));
+    const target = ['memory', 'code', 'all'].includes(String(body.target || '').toLowerCase()) ? String(body.target).toLowerCase() : 'all';
+    const result = await refreshVectorIndex(projectRoot, policy, target, { force: body.force === true });
+    jsonResponse(res, 200, { ok: true, target, stats: result.stats, status: result.status });
+    return;
+  }
+
+  if (pathname === '/api/v1/index/update' && req.method === 'POST') {
+    const result = await updateVectorIndexIncremental(projectRoot, policy);
+    jsonResponse(res, 200, { ok: true, stats: result.stats, status: result.status });
+    return;
+  }
+
+  if (pathname === '/api/v1/index/rebuild' && req.method === 'POST') {
+    const body = await readJsonBody(req).catch(() => ({}));
+    const target = ['memory', 'code', 'all'].includes(String(body.target || '').toLowerCase()) ? String(body.target).toLowerCase() : 'all';
+    const result = await refreshVectorIndex(projectRoot, policy, target, { force: true });
+    jsonResponse(res, 200, { ok: true, target, stats: result.stats, status: result.status });
+    return;
+  }
+
+  if (pathname === '/api/v1/index/drop' && req.method === 'POST') {
+    const body = await readJsonBody(req).catch(() => ({}));
+    const target = ['memory', 'code', 'all'].includes(String(body.target || '').toLowerCase()) ? String(body.target).toLowerCase() : 'all';
+    await dropIndex(projectRoot, target);
+    jsonResponse(res, 200, { ok: true, target });
+    return;
+  }
+
+  if (pathname === '/api/v1/search' && req.method === 'GET') {
+    const query = String(searchParams.get('q') || '').trim();
+    if (!query) {
+      jsonResponse(res, 400, { ok: false, error: 'missing_query' });
+      return;
+    }
+    const source = String(searchParams.get('source') || 'all').toLowerCase();
+    const sources = source === 'memory' || source === 'code' ? [source] : ['memory', 'code'];
+    const limit = Math.max(1, Number(searchParams.get('limit') || 10) || 10);
+    const minScore = Number(searchParams.get('minScore') || 0.65);
+    const results = await semanticSearch(projectRoot, query, {
+      policy,
+      sources,
+      limit,
+      minScore,
+    });
+    jsonResponse(res, 200, results);
     return;
   }
 

@@ -279,6 +279,9 @@ function normalizeUsageRecord(usageRecord = {}) {
   const model = typeof usageRecord.model === 'string' && usageRecord.model.trim()
     ? usageRecord.model.trim()
     : null;
+  const source = typeof usageRecord.source === 'string' && usageRecord.source.trim()
+    ? usageRecord.source.trim().toLowerCase()
+    : null;
   const promptTokens = normalizeNumber(usageRecord.promptTokens);
   const completionTokens = normalizeNumber(usageRecord.completionTokens);
   const totalTokens = normalizeNumber(usageRecord.totalTokens);
@@ -287,6 +290,7 @@ function normalizeUsageRecord(usageRecord = {}) {
     ts: typeof usageRecord.ts === 'string' && usageRecord.ts.trim() ? usageRecord.ts.trim() : nowIso(),
     provider,
     model,
+    source,
     promptTokens,
     completionTokens,
     totalTokens: totalTokens !== null

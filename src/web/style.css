@@ -287,6 +287,22 @@ a {
   gap: 8px;
 }
 
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+.field input,
+.field select {
+  width: 100%;
+}
+
 .button {
   display: inline-flex;
   align-items: center;

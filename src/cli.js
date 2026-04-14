@@ -124,6 +124,17 @@ import {
   updatePolicyWithDetectedRunner,
 } from './test-runner.js';
 import {
+  dropIndex,
+  getIndexStatus,
+  indexAll,
+  indexCode,
+  indexIncremental,
+  indexMemory,
+  prepareEmbeddingProvider,
+  rebuildIndex,
+} from './indexer.js';
+import { semanticSearch, formatResults } from './search.js';
+import {
   formatStatsReport,
   getStats,
   pruneEvents,
@@ -234,6 +245,10 @@ function parseOptions(argv) {
     }
     if (value === '--section') {
       options.section = argv[++i];
+      continue;
+    }
+    if (value === '--target') {
+      options.target = argv[++i];
       continue;
     }
     if (value === '--from') {
@@ -402,6 +417,10 @@ function parseOptions(argv) {
       options.dryRun = true;
       continue;
     }
+    if (value === '--force') {
+      options.force = true;
+      continue;
+    }
     if (value === '--open') {
       options.open = true;
       continue;
@@ -430,6 +449,18 @@ function parseOptions(argv) {
       options.status = argv[++i];
       continue;
     }
+    if (value === '--source') {
+      options.source = argv[++i];
+      continue;
+    }
+    if (value === '--verbose') {
+      options.verbose = true;
+      continue;
+    }
+    if (value === '--min-score') {
+      options.minScore = Number(argv[++i]);
+      continue;
+    }
     if (value === '--test-command') {
       options.testCommand = argv[++i];
       continue;
@@ -452,6 +483,47 @@ function formatDate(value, locale) {
     timeStyle: 'short',
     timeZone: 'UTC',
   }).format(new Date(value));
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  const rounded = unit === 0 ? Math.round(size) : Number(size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2));
+  return `${rounded} ${units[unit]}`;
+}
+
+function formatIndexTableRow(info) {
+  const updatedAt = info?.updatedAt ? new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(info.updatedAt)) : '—';
+  return `${info?.tableName || '—'}   ${info?.totalChunks || 0} чанков   ${info?.embeddingModel || '—'}   ${updatedAt}`;
+}
+
+function normalizeIndexTarget(value) {
+  const target = String(value || 'all').trim().toLowerCase();
+  if (['memory', 'code', 'all'].includes(target)) {
+    return target;
+  }
+  return 'all';
+}
+
+function normalizeSearchSource(value) {
+  const source = String(value || 'all').trim().toLowerCase();
+  if (['memory', 'code', 'all'].includes(source)) {
+    return source;
+  }
+  return 'all';
 }
 
 function deriveTaskTitle(taskText) {
@@ -1123,6 +1195,19 @@ async function getTranslator() {
   };
 }
 
+async function refreshVectorIndex(projectRoot, policy) {
+  const vectorIndex = policy?.vectorIndex || {};
+  if (vectorIndex.enabled === false) {
+    return null;
+  }
+  try {
+    const embeddingProvider = await prepareEmbeddingProvider(projectRoot, policy);
+    return await indexIncremental(projectRoot, policy, embeddingProvider);
+  } catch {
+    return null;
+  }
+}
+
 async function handleProjectCommand(subcommand, t, locale) {
   const projectRoot = process.cwd();
 
@@ -1179,6 +1264,11 @@ async function handleProjectCommand(subcommand, t, locale) {
     console.log(t('project.refreshed', { root: state.projectRoot }));
     console.log(t('project.moduleSummaries', { count: moduleSummaries.length }));
     console.log(t('common.lastRefresh', { value: formatDate(state.lastRefreshAt, locale) }));
+    const policy = await readProjectPolicy(projectRoot).catch(() => ({}));
+    const vectorStats = await refreshVectorIndex(projectRoot, policy);
+    if (vectorStats) {
+      console.log(`Vector index updated: ${vectorStats.filesProcessed} files, ${vectorStats.chunksAdded} chunks`);
+    }
     return;
   }
 
@@ -1189,6 +1279,104 @@ async function handleProjectCommand(subcommand, t, locale) {
   }
 
   printUsage(t);
+}
+
+async function buildIndexTarget(projectRoot, policy, target, embeddingProvider, force = false) {
+  if (force) {
+    await dropIndex(projectRoot, target);
+  }
+  if (target === 'memory') {
+    return indexMemory(projectRoot, policy, embeddingProvider, { force });
+  }
+  if (target === 'code') {
+    return indexCode(projectRoot, policy, embeddingProvider, { force });
+  }
+  return indexAll(projectRoot, policy, embeddingProvider, { force });
+}
+
+async function handleIndexCommand(subcommand, options, t, locale) {
+  const projectRoot = process.cwd();
+  const policy = await readProjectPolicy(projectRoot).catch(() => ({}));
+  const target = normalizeIndexTarget(options.target || 'all');
+
+  if (subcommand === 'status') {
+    const status = await getIndexStatus(projectRoot, policy);
+    console.log(formatIndexStatusOutput(status, t, locale));
+    return;
+  }
+
+  if (subcommand === 'drop') {
+    if (!options.yes && !options.confirm) {
+      const approved = await promptConfirmation(`Удалить vector index (${target})? [y/N]`);
+      if (!approved) {
+        console.log('Удаление отменено.');
+        return;
+      }
+    }
+    await dropIndex(projectRoot, target);
+    console.log(`Vector index удалён: ${target}`);
+    return;
+  }
+
+  const embeddingProvider = await prepareEmbeddingProvider(projectRoot, policy);
+
+  if (subcommand === 'build') {
+    const stats = await buildIndexTarget(projectRoot, policy, target, embeddingProvider, options.force === true);
+    console.log(`Индексирование завершено (${target}).`);
+    console.log(`Файлов: ${stats.filesProcessed}`);
+    console.log(`Чанков добавлено: ${stats.chunksAdded}`);
+    console.log(`Чанков обновлено: ${stats.chunksUpdated}`);
+    console.log(`Чанков удалено: ${stats.chunksDeleted}`);
+    console.log(`Пропущено: ${stats.skipped}`);
+    console.log(`Время: ${(stats.durationMs / 1000).toFixed(1)}s`);
+    return;
+  }
+
+  if (subcommand === 'update') {
+    const stats = await indexIncremental(projectRoot, policy, embeddingProvider);
+    console.log('Инкрементальное обновление индекса завершено.');
+    console.log(`Файлов: ${stats.filesProcessed}`);
+    console.log(`Чанков добавлено: ${stats.chunksAdded}`);
+    console.log(`Чанков обновлено: ${stats.chunksUpdated}`);
+    console.log(`Чанков удалено: ${stats.chunksDeleted}`);
+    console.log(`Пропущено: ${stats.skipped}`);
+    console.log(`Время: ${(stats.durationMs / 1000).toFixed(1)}s`);
+    return;
+  }
+
+  if (subcommand === 'rebuild') {
+    const stats = await rebuildIndex(projectRoot, policy, embeddingProvider, target);
+    console.log(`Индекс пересобран (${target}).`);
+    console.log(`Файлов: ${stats.filesProcessed}`);
+    console.log(`Чанков добавлено: ${stats.chunksAdded}`);
+    console.log(`Чанков обновлено: ${stats.chunksUpdated}`);
+    console.log(`Чанков удалено: ${stats.chunksDeleted}`);
+    console.log(`Пропущено: ${stats.skipped}`);
+    console.log(`Время: ${(stats.durationMs / 1000).toFixed(1)}s`);
+    return;
+  }
+
+  printUsage(t);
+}
+
+async function handleSearchCommand(options, t, locale) {
+  const projectRoot = process.cwd();
+  const query = String(options._[0] || '').trim();
+  if (!query) {
+    throw new Error('Нужно указать поисковый запрос.');
+  }
+  const source = normalizeSearchSource(options.source || 'all');
+  const sources = source === 'all' ? ['memory', 'code'] : [source];
+  const results = await semanticSearch(projectRoot, query, {
+    limit: Number.isFinite(options.limit) && options.limit > 0 ? Math.floor(options.limit) : 10,
+    sources,
+    minScore: Number.isFinite(options.minScore) ? options.minScore : 0.65,
+  });
+  console.log(`Поиск: "${query}"`);
+  console.log(`Embedding: ${results.embeddingModel || '—'}  Время: ${(results.durationMs / 1000).toFixed(1)}s`);
+  console.log(formatIndexSearchOutput(results, {
+    verbose: options.verbose === true,
+  }));
 }
 
 async function handleProviderCommand(subcommand, options, t, locale) {
@@ -1635,6 +1823,28 @@ function formatServerConfigOutput(config, t) {
     `${t('server.corsOrigins')}: ${(config.corsOrigins || []).join(', ') || t('common.notSet')}`,
   ];
   return lines.join('\n');
+}
+
+function formatIndexStatusOutput(status, t, locale) {
+  const lines = [
+    'Vector Index Status',
+    '────────────────────────────────────────────────────────────',
+  ];
+  for (const table of status.tables || []) {
+    lines.push(`${table.tableName.padEnd(8)} ${String(table.totalChunks || 0).padStart(6)} чанков   ${table.embeddingModel || '—'}   ${table.updatedAt ? formatDate(table.updatedAt, locale) : '—'}`);
+  }
+  lines.push('────────────────────────────────────────────────────────────');
+  lines.push(`Embedding: ${status.embedding?.provider || '—'} / ${status.embedding?.model || '—'} (${status.embedding?.dimensions || '—'} dim)`);
+  lines.push(`Размер на диске: ${formatBytes(status.sizeBytes || 0)}`);
+  return lines.join('\n');
+}
+
+function formatIndexSearchOutput(results, opts = {}) {
+  return formatResults(results, {
+    verbose: opts.verbose === true,
+    showContent: true,
+    maxContentLength: opts.maxContentLength || 240,
+  });
 }
 
 async function handleServerCommand(subcommand, options, t, locale) {
@@ -3145,6 +3355,16 @@ async function main() {
 
   if (command === 'project') {
     await handleProjectCommand(subcommand, t, locale);
+    return;
+  }
+
+  if (command === 'index') {
+    await handleIndexCommand(subcommand, options, t, locale);
+    return;
+  }
+
+  if (command === 'search') {
+    await handleSearchCommand(options, t, locale);
     return;
   }
 

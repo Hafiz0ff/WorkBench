@@ -13,6 +13,13 @@ const state = {
   stats: null,
   budget: null,
   budgetRecent: [],
+  index: null,
+  indexResults: [],
+  indexQuery: '',
+  indexSource: 'all',
+  indexLimit: 5,
+  indexMinScore: 0.65,
+  indexProgress: null,
   hooks: [],
   hookHistory: [],
   providers: [],
@@ -36,6 +43,7 @@ const sectionMeta = {
   tests: { label: 'Тесты', icon: '✓', subtitle: 'прогоны и логи' },
   stats: { label: 'Статистика', icon: '✦', subtitle: 'аналитика использования' },
   budget: { label: 'Бюджет', icon: '¤', subtitle: 'token usage и лимиты' },
+  index: { label: 'Индекс', icon: '⌘', subtitle: 'semantic memory' },
   hooks: { label: 'Хуки', icon: '⚑', subtitle: 'уведомления и алерты' },
   memory: { label: 'Память', icon: '◫', subtitle: 'project context' },
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
@@ -958,6 +966,125 @@ function renderBudget() {
   );
 }
 
+function renderIndex() {
+  const tables = Array.isArray(state.index?.tables) ? state.index.tables : [];
+  const searchResults = Array.isArray(state.indexResults) ? state.indexResults : [];
+  const progress = state.indexProgress || null;
+  const embedding = state.index?.embedding || {};
+  return sectionWrapper(
+    'Индекс',
+    'Семантический поиск по памяти проекта и коду.',
+    [
+      buttonMarkup('Собрать', 'build-index', '', ''),
+      buttonMarkup('Статус', 'refresh-index', '', ''),
+      buttonMarkup('Обновить', 'update-index', '', ''),
+      buttonMarkup('Пересобрать', 'rebuild-index', '', 'primary'),
+    ].join(''),
+    `
+      <div class="grid two-up">
+        ${tables.map((table) => `
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">${escapeHtml(table.tableName)}</h2>
+              <div class="actions">
+                <button class="button" data-action="build-index" data-target="${escapeHtml(table.tableName)}">Build</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="grid two-up">
+                ${metricCard('Чанки', String(table.totalChunks || 0), table.embeddingModel || '—')}
+                ${metricCard('Обновлено', formatDate(table.updatedAt), embedding.provider ? `${embedding.provider}/${embedding.model}` : '—')}
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <div class="card-header"><h2 class="card-title">Таргет</h2></div>
+        <div class="card-body">
+          <div class="grid two-up">
+            <label class="field">
+              <span class="field-label">Что индексировать</span>
+              <select data-index-target>
+                ${['all', 'memory', 'code'].map((value) => `<option value="${value}" ${value === 'all' ? 'selected' : ''}>${value}</option>`).join('')}
+              </select>
+            </label>
+            <div class="metric">
+              <div class="metric-label">Embedding</div>
+              <div class="metric-value">${escapeHtml(embedding.provider || '—')} / ${escapeHtml(embedding.model || '—')}</div>
+              <div class="metric-sub">${escapeHtml(String(embedding.dimensions || '—'))} dim</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <div class="card-header"><h2 class="card-title">Индексация</h2></div>
+        <div class="card-body">
+          ${progress ? `
+            <div class="grid two-up">
+              ${metricCard('Таргет', progress.target || '—', `${progress.filesProcessed || 0}/${progress.totalFiles || 0} файлов`)}
+              ${metricCard('Чанки', String(progress.chunksAdded || 0), progress.stats ? `done ${progress.stats.chunksDeleted || 0} deleted` : 'in progress')}
+            </div>
+            <div style="margin-top: 12px;">${renderProgressBar(progress.filesProcessed || 0, progress.totalFiles || 1, {
+              color: 'var(--accent)',
+              label: progress.totalFiles ? `${progress.filesProcessed || 0}/${progress.totalFiles}` : 'progress',
+              showPercent: false,
+            })}</div>
+          ` : emptyState('Прогресс не активен', 'Запустите build/update, чтобы увидеть ход индексации.')}
+        </div>
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <div class="card-header"><h2 class="card-title">Поиск</h2></div>
+        <div class="card-body">
+          <div class="grid two-up">
+            <label class="field">
+              <span class="field-label">Запрос</span>
+              <input type="text" data-index-query value="${escapeHtml(state.indexQuery || '')}" placeholder="например, telegram hooks" />
+            </label>
+            <label class="field">
+              <span class="field-label">Источник</span>
+              <select data-index-source>
+                ${['all', 'memory', 'code'].map((source) => `<option value="${source}" ${source === (state.indexSource || 'all') ? 'selected' : ''}>${source}</option>`).join('')}
+              </select>
+            </label>
+          </div>
+          <div class="grid two-up" style="margin-top: 12px;">
+            <label class="field">
+              <span class="field-label">Лимит</span>
+              <input type="number" min="1" max="20" value="${escapeHtml(String(state.indexLimit || 5))}" data-index-limit />
+            </label>
+            <label class="field">
+              <span class="field-label">Минимальный score</span>
+              <input type="number" min="0" max="1" step="0.05" value="${escapeHtml(String(state.indexMinScore ?? 0.65))}" data-index-min-score />
+            </label>
+          </div>
+          <div class="actions" style="margin-top: 12px;">
+            <button class="button primary" data-action="search-index">Поиск</button>
+            <button class="button" data-action="drop-index">Удалить индекс</button>
+          </div>
+          <div style="margin-top: 16px;">
+            ${searchResults.length ? `
+              <div class="list">
+                ${searchResults.map((result) => `
+                  <div class="list-item">
+                    <div class="list-main">
+                      <div class="list-title">${escapeHtml(result.filePath)} <span class="tiny-badge">${escapeHtml(result.source)}</span></div>
+                      <div class="list-subtitle">${escapeHtml(String(result.content || '').slice(0, 200))}</div>
+                    </div>
+                    <div class="list-meta">
+                      <span class="tiny-badge ok">${Math.round((result.score || 0) * 100)}%</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : emptyState('Результаты поиска пусты', 'Введите запрос и запустите семантический поиск по памяти и коду.')}
+          </div>
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderMemory() {
   const entries = [
     ['Обзор проекта', state.memory?.overview],
@@ -1277,6 +1404,8 @@ function renderMain() {
       return renderStats();
     case 'budget':
       return renderBudget();
+    case 'index':
+      return renderIndex();
     case 'memory':
       return renderMemory();
     case 'providers':
@@ -1328,7 +1457,7 @@ function render() {
 }
 
 async function loadProjectData() {
-  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, budget, budgetRecent, providers, hooks, hookHistory, roles, workspaces] = await Promise.all([
+  const [project, memory, tasks, patch, patchHistory, testsHistory, stats, budget, budgetRecent, index, providers, hooks, hookHistory, roles, workspaces] = await Promise.all([
     apiGet('/api/v1/project/status'),
     apiGet('/api/v1/project/memory'),
     apiGet('/api/v1/tasks'),
@@ -1338,6 +1467,7 @@ async function loadProjectData() {
     apiGet('/api/v1/stats'),
     apiGet('/api/v1/budget'),
     apiGet('/api/v1/budget/recent?limit=50'),
+    apiGet('/api/v1/index/status'),
     apiGet('/api/v1/providers'),
     apiGet('/api/v1/hooks'),
     apiGet('/api/v1/hooks/history?limit=10'),
@@ -1354,6 +1484,7 @@ async function loadProjectData() {
   state.stats = stats || null;
   state.budget = budget || null;
   state.budgetRecent = budgetRecent.entries || [];
+  state.index = index || null;
   state.providers = providers.providers || [];
   state.hooks = hooks.hooks || [];
   state.hookHistory = hookHistory.history || [];
@@ -1375,6 +1506,13 @@ async function loadProjectData() {
     state.selectedHookId = state.hooks[0].id;
   }
   state.currentWorkspace = state.workspaces.find((item) => item.current) || null;
+
+  if (state.indexQuery) {
+    const search = await apiGet(`/api/v1/search?q=${encodeURIComponent(state.indexQuery)}&source=${encodeURIComponent(state.indexSource || 'all')}&limit=5&minScore=0.65`).catch(() => ({ results: [] }));
+    state.indexResults = search.results || [];
+  } else {
+    state.indexResults = [];
+  }
 
   if (state.selectedTaskId) {
     await loadTaskDetail(state.selectedTaskId);
@@ -1538,6 +1676,57 @@ async function handleAction(action, target) {
       state.statusMessage = 'Бюджет обновлён.';
       await reloadView();
       return;
+    case 'refresh-index':
+      await apiGet('/api/v1/index/status');
+      state.statusMessage = 'Индекс обновлён.';
+      await reloadView();
+      return;
+    case 'build-index': {
+      const indexTarget = target.dataset.target || document.querySelector('[data-index-target]')?.value || 'all';
+      await apiPost('/api/v1/index/build', { target: indexTarget });
+      state.statusMessage = 'Индекс строится.';
+      await reloadView();
+      return;
+    }
+    case 'update-index':
+      await apiPost('/api/v1/index/update', {});
+      state.statusMessage = 'Индекс обновлён инкрементально.';
+      await reloadView();
+      return;
+    case 'rebuild-index': {
+      const indexTarget = document.querySelector('[data-index-target]')?.value || 'all';
+      await apiPost('/api/v1/index/rebuild', { target: indexTarget });
+      state.statusMessage = 'Индекс пересобран.';
+      await reloadView();
+      return;
+    }
+    case 'drop-index': {
+      const indexTarget = document.querySelector('[data-index-target]')?.value || 'all';
+      await apiPost('/api/v1/index/drop', { target: indexTarget });
+      state.statusMessage = 'Индекс удалён.';
+      await reloadView();
+      return;
+    }
+    case 'search-index': {
+      const queryInput = document.querySelector('[data-index-query]');
+      const sourceSelect = document.querySelector('[data-index-source]');
+      const limitInput = document.querySelector('[data-index-limit]');
+      const minScoreInput = document.querySelector('[data-index-min-score]');
+      state.indexQuery = String(queryInput?.value || '').trim();
+      state.indexSource = String(sourceSelect?.value || 'all').trim() || 'all';
+      state.indexLimit = Number(limitInput?.value || 5) || 5;
+      state.indexMinScore = Number(minScoreInput?.value || 0.65) || 0.65;
+      if (!state.indexQuery) {
+        state.indexResults = [];
+        render();
+        return;
+      }
+      const search = await apiGet(`/api/v1/search?q=${encodeURIComponent(state.indexQuery)}&source=${encodeURIComponent(state.indexSource)}&limit=${encodeURIComponent(state.indexLimit)}&minScore=${encodeURIComponent(state.indexMinScore)}`);
+      state.indexResults = search.results || [];
+      state.statusMessage = 'Поиск выполнен.';
+      render();
+      return;
+    }
     case 'refresh-hooks':
       await reloadView('Хуки обновлены.');
       return;
@@ -1565,9 +1754,34 @@ function connectEvents() {
     state.live = false;
     render();
   });
+  const readPayload = (event) => {
+    try {
+      return JSON.parse(event.data || '{}').payload || null;
+    } catch {
+      return null;
+    }
+  };
   const refresh = () => {
     reloadView();
   };
+  source.addEventListener('index:start', (event) => {
+    state.indexProgress = { ...(readPayload(event) || {}), phase: 'start' };
+    render();
+  });
+  source.addEventListener('index:progress', (event) => {
+    state.indexProgress = { ...(readPayload(event) || {}), phase: 'progress' };
+    render();
+  });
+  source.addEventListener('index:done', () => {
+    state.indexProgress = null;
+    refresh();
+  });
+  source.addEventListener('index:error', (event) => {
+    state.indexProgress = null;
+    const payload = readPayload(event);
+    state.statusMessage = `Индекс: ${payload?.error || 'ошибка'}`;
+    refresh();
+  });
   source.addEventListener('task:updated', refresh);
   source.addEventListener('patch:new', refresh);
   source.addEventListener('patch.applied', refresh);

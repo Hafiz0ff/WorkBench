@@ -5,6 +5,7 @@ import { listAllowedShellCommands, runShellCommand } from './shell.js';
 import { trackEvent } from './stats.js';
 import { checkLimit, createBudgetError, trackUsage } from './budget.js';
 import { readProjectPolicy } from './policy.js';
+import { semanticSearch, formatForContext } from './search.js';
 
 function stripCodeFence(text) {
   const trimmed = text.trim();
@@ -127,6 +128,47 @@ async function runModelRound({ projectRoot = null, provider, model, messages, po
   return parseAssistantEnvelope(content);
 }
 
+async function enrichMessagesWithSemanticContext(projectRoot, messages, policy = null) {
+  if (!projectRoot || !Array.isArray(messages) || !messages.length) {
+    return messages;
+  }
+  const vectorIndex = policy?.vectorIndex || {};
+  if (vectorIndex.enabled === false || vectorIndex.autoContextEnrichment === false) {
+    return messages;
+  }
+
+  const queryMessage = [...messages].reverse().find((message) => message?.role === 'user' && String(message?.content || '').trim());
+  const query = String(queryMessage?.content || '').trim();
+  if (!query) {
+    return messages;
+  }
+
+  try {
+    const result = await semanticSearch(projectRoot, query, {
+      policy,
+      limit: 5,
+      minScore: Number.isFinite(Number(vectorIndex.minScore)) ? Number(vectorIndex.minScore) : 0.65,
+      sources: ['memory', 'code'],
+    });
+    const context = formatForContext(result, Number.isFinite(Number(vectorIndex.contextLimit)) ? Number(vectorIndex.contextLimit) : 2000);
+    if (!context) {
+      return messages;
+    }
+    const enriched = messages.map((message) => ({ ...message }));
+    const systemIndex = enriched.findIndex((message) => message?.role === 'system');
+    if (systemIndex >= 0) {
+      enriched[systemIndex] = {
+        ...enriched[systemIndex],
+        content: `${String(enriched[systemIndex].content || '').trim()}\n\n${context}`.trim(),
+      };
+      return enriched;
+    }
+    return [{ role: 'system', content: context }, ...enriched];
+  } catch {
+    return messages;
+  }
+}
+
 async function collectModelText(projectRoot, provider, model, messages, { policy = null } = {}) {
   if (projectRoot) {
     const budgetCheck = await checkLimit(projectRoot, provider?.name || 'unknown');
@@ -134,6 +176,7 @@ async function collectModelText(projectRoot, provider, model, messages, { policy
     if (!budgetCheck.ok && resolvedPolicy?.budget?.onExceed === 'block') {
       throw createBudgetError('Token budget exceeded.', budgetCheck.exceeded);
     }
+    messages = await enrichMessagesWithSemanticContext(projectRoot, messages, resolvedPolicy);
   }
   let content = '';
   for await (const chunk of provider.chat(messages, { model })) {

@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-2.1.0-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-2.2.0-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -16,6 +16,7 @@
 - [Workspace / Воркспейс](#workspace)
 - [Core Commands / Основные команды](#core-commands)
 - [Budget / Токен-бюджет](#budget)
+- [Index / Векторный поиск](#index)
 - [Hooks / Уведомления](#hooks)
 - [`.local-codex/`](#local-codex)
 - [GUI](#gui)
@@ -50,6 +51,7 @@ Workbench также поставляется с provider layer, который 
 - Project memory, role profiles, task workspace, and prompt composition
 - Reviewable patch workflow with approval modes and policy-driven execution
 - Manifest-driven GitHub extensions with a curated registry layer
+- Semantic vector search over project memory and source code
 - Inspectable on-disk state in `.local-codex/`
 
 - Интеграция с локальным Ollama через `http://localhost:11434`
@@ -59,6 +61,7 @@ Workbench также поставляется с provider layer, который 
 - Память проекта, профили ролей, task workspace и сборка prompt
 - Reviewable patch workflow с approval modes и policy-driven execution
 - Manifest-driven GitHub extensions и curated registry layer
+- Семантический векторный поиск по памяти проекта и исходному коду
 - Полностью inspectable состояние на диске в `.local-codex/`
 
 <a id="screenshots"></a>
@@ -438,6 +441,22 @@ Token Budget tracks local usage for every provider, including Ollama, and can wa
 
 Token Budget отслеживает локальное потребление для всех провайдеров, включая Ollama, и может предупреждать или блокировать запросы при достижении лимитов.
 
+<a id="index"></a>
+### Index / Векторный поиск
+
+```bash
+app index build
+app index update
+app index status
+app index rebuild
+app index drop --target all --confirm
+app search "telegram hooks"
+```
+
+Vector search builds local semantic memory over `.local-codex/` notes and project source code. The index is file-backed and can be rebuilt at any time.
+
+Векторный поиск строит локальную семантическую память поверх `.local-codex/` и исходного кода проекта. Индекс хранится в файлах и может быть пересобран в любой момент.
+
 ### Hooks / Уведомления
 
 ```bash
@@ -594,6 +613,7 @@ Release docs:
 - `docs/release-notes-1.4.0.md`
 - `docs/release-notes-2.0.0.md`
 - `docs/release-notes-2.1.0.md`
+- `docs/release-notes-2.2.0.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
 
@@ -602,4 +622,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `2.1.0`.
+- The current release line is `2.2.0`.
