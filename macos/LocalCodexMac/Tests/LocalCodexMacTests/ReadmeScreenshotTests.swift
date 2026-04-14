@@ -44,6 +44,10 @@ final class ReadmeScreenshotTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["GENERATE_README_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set GENERATE_README_SCREENSHOTS=1 to generate README screenshots.")
         }
+        UserDefaults.standard.set("2.3.0", forKey: "localcodex.appVersionOverride")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "localcodex.appVersionOverride")
+        }
 
         let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .deletingLastPathComponent()

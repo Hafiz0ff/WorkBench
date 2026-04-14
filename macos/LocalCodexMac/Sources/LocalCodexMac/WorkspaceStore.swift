@@ -285,6 +285,15 @@ final class WorkspaceStore: ObservableObject {
     }
 
     var appVersionDisplay: String {
+        let defaults = UserDefaults.standard
+        if let override = defaults.string(forKey: "localcodex.appVersionOverride")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return override
+        }
+        if let envOverride = ProcessInfo.processInfo.environment["LOCAL_CODEX_APP_VERSION"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envOverride.isEmpty {
+            return envOverride
+        }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         switch (version, build) {
