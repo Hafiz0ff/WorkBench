@@ -13,16 +13,16 @@ private actor ScreenshotMockRunner: CLICommandRunning {
         if arguments.first == "prompt", arguments.dropFirst().first == "inspect" {
             stdout = """
             === Base System Instructions ===
-            Keep responses concise, specific, and reviewable.
+            Keep responses concise, specific, and reviewable for the 2.3.0 release.
 
             === Role Profile ===
-            Senior engineer: minimal diffs, safe refactors, explicit tradeoffs.
+            Senior engineer: minimal diffs, safe refactors, explicit tradeoffs, plugin-safe changes.
 
             === Project Memory ===
-            Project overview loaded from .local-codex.
+            Project overview loaded from .local-codex for the current release.
 
             === Task Context ===
-            Review the demo project structure and identify the first implementation entry point.
+            Review the demo project structure, Extension SDK, and identify the first implementation entry point.
             """
         } else {
             stdout = ""
@@ -69,7 +69,7 @@ final class ReadmeScreenshotTests: XCTestCase {
         store.selectedSection = .project
         store.selectedTaskId = store.snapshot?.state?.currentTaskId
         store.selectedRoleName = store.snapshot?.state?.activeRole
-        store.selectedRegistryId = store.snapshot?.registryCatalog?.entries?.first?.id
+        store.selectedRegistryId = "workbench.mcp.connector.demo"
         store.selectedExtensionId = store.snapshot?.extensions?.extensions?.first?.id
 
         try renderScreenshot(
@@ -82,6 +82,8 @@ final class ReadmeScreenshotTests: XCTestCase {
         )
 
         store.selectedSection = .tasks
+        store.taskTitle = "Release history cleanup"
+        store.taskRequest = "Review the 2.3.0 release history and screenshot coverage."
         try renderScreenshot(
             ContentView()
                 .environmentObject(store)
@@ -123,7 +125,7 @@ final class ReadmeScreenshotTests: XCTestCase {
 
         store.selectedSection = .prompt
         store.promptRoleOverride = "senior-engineer"
-        store.promptInstruction = "Review the demo project structure and identify the first implementation entry point."
+        store.promptInstruction = "Review the demo project structure, Extension SDK, and identify the first implementation entry point."
         store.console = []
         store.sessionOutputText = ""
         await store.inspectPrompt()
@@ -157,16 +159,16 @@ final class ReadmeScreenshotTests: XCTestCase {
         )
 
         store.selectedSection = .session
-        store.sessionInput = "Audit the landing state and summarize next actions."
+        store.sessionInput = "Audit the 2.3.0 release state and summarize next actions."
         store.sessionIsRunning = true
-        store.sessionProcessStatus = "Mock session active"
+        store.sessionProcessStatus = "Mock session active for 2.3.0"
         store.sessionOutputText = """
         > app prompt inspect
         === Base System Instructions ===
-        Keep responses concise, specific, and reviewable.
+        Keep responses concise, specific, and reviewable for the 2.3.0 release.
 
         === Task Context ===
-        Review the demo project structure and identify the first implementation entry point.
+        Review the demo project structure, Extension SDK, and identify the first implementation entry point.
         """
         try renderScreenshot(
             ContentView()
@@ -257,26 +259,26 @@ final class ReadmeScreenshotTests: XCTestCase {
         try FileManager.default.createDirectory(at: rolesRoot, withIntermediateDirectories: true)
 
         let roleData: [(String, String)] = [
-            ("senior-engineer", "Practical engineering role."),
-            ("software-architect", "Designs boundaries and migration paths."),
-            ("code-reviewer", "Focuses on correctness and risk."),
-            ("debugging-expert", "Narrows issues with evidence."),
-            ("designer", "Improves UX clarity and hierarchy."),
-            ("product-manager", "Slices work into outcomes."),
-            ("frontend-engineer", "Builds polished UI surfaces."),
-            ("backend-engineer", "Owns server-side logic and data flow."),
-            ("test-engineer", "Creates strong validation coverage."),
-            ("performance-optimizer", "Finds bottlenecks and reduces overhead."),
-            ("refactoring-strategist", "Improves structure without changing behavior."),
-            ("release-engineer", "Prepares stable shipping builds."),
-            ("api-designer", "Shapes API contracts and payloads."),
+            ("senior-engineer", "Keeps the 2.3.0 release flow reviewable and current."),
+            ("software-architect", "Designs boundaries for the Extension SDK and provider registry."),
+            ("code-reviewer", "Focuses on release risk, regressions, and patch safety."),
+            ("debugging-expert", "Narrows issues with evidence from the latest release."),
+            ("designer", "Improves UI clarity across dashboard and desktop screenshots."),
+            ("product-manager", "Slices roadmap work into shippable release steps."),
+            ("frontend-engineer", "Builds polished UI surfaces for the browser dashboard."),
+            ("backend-engineer", "Owns server-side logic, hooks, and data flow."),
+            ("test-engineer", "Creates strong validation coverage for new release flows."),
+            ("performance-optimizer", "Finds bottlenecks in indexing and analytics refreshes."),
+            ("refactoring-strategist", "Improves structure without changing release behavior."),
+            ("release-engineer", "Prepares stable shipping builds and DMG artifacts."),
+            ("api-designer", "Shapes API contracts for CLI, server, and plugin surfaces."),
             ("migration-engineer", "Moves data and code safely across versions."),
             ("qa-analyst", "Checks behavior against acceptance criteria."),
             ("bug-hunter", "Tracks failures to root cause."),
-            ("devops-engineer", "Helps with delivery and infrastructure."),
+            ("devops-engineer", "Helps with delivery, packaging, and release automation."),
             ("security-reviewer", "Looks for security and trust gaps."),
             ("documentation-engineer", "Keeps public docs crisp and current."),
-            ("integration-engineer", "Connects components without surprises.")
+            ("integration-engineer", "Connects core modules without surprises.")
         ]
 
         for (name, description) in roleData {
@@ -313,25 +315,25 @@ final class ReadmeScreenshotTests: XCTestCase {
           "schemaVersion": 1,
           "createdAt": "2026-04-13T00:00:00.000Z",
           "updatedAt": "2026-04-13T00:00:00.000Z",
-          "currentTaskId": "task-frontend",
+          "currentTaskId": "task-release",
           "tasks": [
             {
               "id": "task-frontend",
-              "title": "Landing polish",
+              "title": "Extension SDK release polish",
               "slug": "landing-polish",
               "status": "in_progress",
               "createdAt": "2026-04-13T00:00:00.000Z",
               "updatedAt": "2026-04-13T00:00:00.000Z",
               "role": "senior-engineer",
               "model": "qwen2.5-coder:14b",
-              "summary": "Refine the landing state and composer flow.",
-              "userRequest": "Polish the project landing experience.",
+              "summary": "Refine the landing state and composer flow for the 2.3.0 release.",
+              "userRequest": "Polish the project landing experience for the current release.",
               "relevantFiles": ["macos/LocalCodexMac/Sources/LocalCodexMac/Sections.swift"],
               "lastRunNotes": [
                 {
                   "kind": "finding",
                   "source": "assistant",
-                  "text": "Composer should autofocus after project load.",
+                  "text": "Composer should autofocus after project load in the 2.3.0 flow.",
                   "createdAt": "2026-04-13T00:00:00.000Z"
                 }
               ],
@@ -340,32 +342,32 @@ final class ReadmeScreenshotTests: XCTestCase {
             },
             {
               "id": "task-backend",
-              "title": "API contract audit",
+              "title": "Provider and hook audit",
               "slug": "api-contract-audit",
               "status": "planned",
               "createdAt": "2026-04-13T00:00:00.000Z",
               "updatedAt": "2026-04-13T00:00:00.000Z",
               "role": "backend-engineer",
               "model": "qwen2.5-coder:14b",
-              "summary": "Check payloads, boundaries, and error states.",
-              "userRequest": "Audit the API contract for edge cases.",
-              "relevantFiles": ["src/api.ts", "src/server.ts"],
+              "summary": "Check payloads, boundaries, and error states across provider and hook flows.",
+              "userRequest": "Audit the provider and hook contracts for edge cases.",
+              "relevantFiles": ["src/providers/index.js", "src/hooks.js", "src/server.js"],
               "lastRunNotes": [],
               "location": "active",
               "folder": "active/task-backend"
             },
             {
               "id": "task-release",
-              "title": "Prepare release notes",
+              "title": "Prepare 2.3.0 release notes",
               "slug": "prepare-release-notes",
               "status": "draft",
               "createdAt": "2026-04-13T00:00:00.000Z",
               "updatedAt": "2026-04-13T00:00:00.000Z",
               "role": "product-manager",
               "model": "qwen2.5-coder:14b",
-              "summary": "Write concise release notes and screenshots.",
-              "userRequest": "Prepare public release notes and visuals.",
-              "relevantFiles": ["CHANGELOG.md", "README.md"],
+              "summary": "Write concise release notes, screenshots, and release history.",
+              "userRequest": "Prepare public release notes and visuals for 2.3.0.",
+              "relevantFiles": ["CHANGELOG.md", "README.md", "docs/release-notes-2.3.0.md"],
               "lastRunNotes": [],
               "location": "active",
               "folder": "active/task-release"
@@ -384,13 +386,13 @@ final class ReadmeScreenshotTests: XCTestCase {
           "allowedReadGlobs": ["src/**", "tests/**", "README.md", ".local-codex/**"],
           "allowedWriteGlobs": ["src/**", "tests/**", "README.md", ".local-codex/**"],
           "blockedPaths": ["node_modules/**", ".git/**"],
-          "allowedCommands": ["git status", "npm test", "swift test"],
+          "allowedCommands": ["git status", "npm test", "swift test", "app extensions list"],
           "blockedCommands": ["rm -rf /", "curl | sh"],
           "requireApprovalFor": {
             "commands": ["npm install", "git push"],
             "categories": ["network", "destructive"]
           },
-          "maxCommandOutputChars": 12000
+          "maxCommandOutputChars": 16000
         }
         """
         let url = root.appendingPathComponent(".local-codex/policy.json")
@@ -413,7 +415,7 @@ final class ReadmeScreenshotTests: XCTestCase {
           "approvalMode": "on-request",
           "approvalStatus": "pending",
           "validationStatus": "pending",
-          "summary": "Improve landing copy and align composer spacing.",
+          "summary": "Align release copy and confirm plugin-safe patch spacing.",
           "affectedFiles": [
             {
               "path": "macos/LocalCodexMac/Sources/LocalCodexMac/Sections.swift",
@@ -438,9 +440,9 @@ final class ReadmeScreenshotTests: XCTestCase {
             {
               "path": "macos/LocalCodexMac/Sources/LocalCodexMac/Sections.swift",
               "action": "update",
-              "beforeContent": "Text(\\"Old copy\\")",
-              "afterContent": "Text(\\"New copy\\")",
-              "diffText": "--- a/Sections.swift\\n+++ b/Sections.swift\\n@@\\n- Text(\\"Old copy\\")\\n+ Text(\\"New copy\\")"
+              "beforeContent": "Text(\\"Old release copy\\")",
+              "afterContent": "Text(\\"Workbench 2.3.0\\")",
+              "diffText": "--- a/Sections.swift\\n+++ b/Sections.swift\\n@@\\n- Text(\\"Old release copy\\")\\n+ Text(\\"Workbench 2.3.0\\")"
             }
           ],
           "diffPath": ".local-codex/patches/patch-demo-1/diff.txt",
@@ -463,10 +465,10 @@ final class ReadmeScreenshotTests: XCTestCase {
             {
               "id": "workbench.core-prompt-pack",
               "name": "Workbench Core Prompt Pack",
-              "version": "1.0.0",
+              "version": "2.3.0",
               "type": "skill",
               "author": "Workbench",
-              "description": "Core prompt instructions for local development workflows.",
+              "description": "Core prompt instructions for the 2.3.0 release workflow.",
               "source": {
                 "kind": "github",
                 "owner": "Hafiz0ff",
@@ -488,7 +490,7 @@ final class ReadmeScreenshotTests: XCTestCase {
               "publisher": "Workbench",
               "reviewStatus": "reviewed",
               "verifiedSource": true,
-              "supportedAppVersions": [">=1.0.0"],
+              "supportedAppVersions": [">=2.3.0"],
               "signature": "demo-signature",
               "lastCheckedAt": "2026-04-13T00:00:00.000Z",
               "trustLevel": "reviewed",
@@ -578,10 +580,10 @@ final class ReadmeScreenshotTests: XCTestCase {
             {
               "id": "workbench.role-pack.ui",
               "name": "Workbench UI Role Pack",
-              "version": "0.9.0",
+              "version": "2.3.0",
               "type": "role-pack",
               "author": "Workbench",
-              "description": "Useful design and UI thinking roles for interface work.",
+              "description": "Useful design and UI thinking roles for interface work in the current release.",
               "source": {
                 "kind": "github",
                 "owner": "Hafiz0ff",
@@ -599,7 +601,7 @@ final class ReadmeScreenshotTests: XCTestCase {
               "publisher": "Workbench",
               "reviewStatus": "reviewed",
               "verifiedSource": true,
-              "supportedAppVersions": [">=1.0.0"],
+              "supportedAppVersions": [">=2.3.0"],
               "signature": "demo-signature",
               "trustLevel": "reviewed",
               "recommended": false,
@@ -615,10 +617,10 @@ final class ReadmeScreenshotTests: XCTestCase {
             {
               "id": "workbench.mcp.connector.demo",
               "name": "Demo MCP Connector Descriptor",
-              "version": "0.1.0",
+              "version": "2.3.0",
               "type": "mcp-connector",
               "author": "Workbench",
-              "description": "Descriptor only; no executable behavior in this stage.",
+              "description": "Descriptor only; aligned with the 2.3.0 plugin system screenshots.",
               "source": {
                 "kind": "github",
                 "owner": "Hafiz0ff",
@@ -636,7 +638,7 @@ final class ReadmeScreenshotTests: XCTestCase {
               "publisher": "Workbench",
               "reviewStatus": "experimental",
               "verifiedSource": false,
-              "supportedAppVersions": [">=1.0.0"],
+              "supportedAppVersions": [">=2.3.0"],
               "signature": null,
               "trustLevel": "experimental",
               "recommended": false,
@@ -655,7 +657,7 @@ final class ReadmeScreenshotTests: XCTestCase {
               "id": "registry-note-1",
               "sourceId": "workbench-curated",
               "severity": "info",
-              "message": "Demo registry is read-only and intended for screenshots."
+              "message": "Demo registry is read-only and intended for the 2.3.0 screenshots."
             }
           ]
         }
