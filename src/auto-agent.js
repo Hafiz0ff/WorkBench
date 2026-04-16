@@ -16,6 +16,7 @@ import { stageProjectPatch, applyPatchSilent, rollbackPatch, getPatchStatus } fr
 import { appendMessage, createMessageId, createSessionId, ensureConversationSummary, readConversationSummary } from './conversation.js';
 import { listAllowedShellCommands } from './shell.js';
 import { composePromptLayers, BASE_SYSTEM_INSTRUCTIONS } from './prompt-composer.js';
+import { getFreezeModeAuditInstruction, getFreezeModeInstruction, isFreezeModeEnabled } from './freeze-mode.js';
 import { generatePatch } from './agent.js';
 import { trackEvent } from './stats.js';
 import { checkLimit, createBudgetError, trackUsage } from './budget.js';
@@ -266,21 +267,27 @@ function ensureStepShape(step, index) {
   };
 }
 
-async function buildPlanPrompt({ task, request, memorySummary, taskContext, conversationSummary, allowedShellCommands, projectRoot, locale = 'ru' }) {
+async function buildPlanPrompt({ task, request, memorySummary, taskContext, conversationSummary, allowedShellCommands, projectRoot, locale = 'ru', policy = null }) {
   const instructions = locale === 'en'
     ? [
       'You are a task planner.',
+      'In freeze mode, act as an auditor: identify logical errors, invariants, edge cases, and compilation blockers instead of planning edits.',
       'Break the request into concrete atomic steps.',
       'Each step must be doable with one file patch and have a completion criterion.',
       'Return ONLY a valid JSON array with up to 10 steps.',
     ].join('\n')
     : [
       'Ты — планировщик задач.',
+      'В режиме freeze mode действуй как аудитор: ищи логические ошибки, инварианты, edge cases и блокеры компиляции вместо планирования правок.',
       'Разбей запрос на конкретные атомарные шаги.',
       'Каждый шаг должен быть выполним одним патчем и иметь критерий завершения.',
       'Верни ТОЛЬКО валидный JSON массив шагов, максимум 10.',
     ].join('\n');
+  const freezeInstruction = policy?.freezeMode?.enabled ? getFreezeModeInstruction() : '';
+  const freezeAuditInstruction = policy?.freezeMode?.enabled ? getFreezeModeAuditInstruction() : '';
   return [
+    freezeInstruction ? `=== ${freezeInstruction} ===` : null,
+    freezeAuditInstruction ? `=== ${freezeAuditInstruction} ===` : null,
     `=== ${instructions} ===`,
     `Request: ${request}`,
     `Task: ${task.title}`,
@@ -298,11 +305,15 @@ async function buildPlanPrompt({ task, request, memorySummary, taskContext, conv
   ].filter(Boolean).join('\n');
 }
 
-async function buildStepPrompt({ step, memorySummary, completedSteps, request, projectRoot, locale = 'ru' }) {
+async function buildStepPrompt({ step, memorySummary, completedSteps, request, projectRoot, locale = 'ru', policy = null }) {
   const instructions = locale === 'en'
-    ? 'You are an executor. Return ONLY valid JSON with a summary and file changes.'
-    : 'Ты — исполнитель. Верни ТОЛЬКО валидный JSON со сводкой и файловыми изменениями.';
+    ? 'You are an auditor. Return ONLY valid JSON with a summary, findings, and no file changes.'
+    : 'Ты — аудитор. Верни ТОЛЬКО валидный JSON со сводкой, найденными проблемами и без файловых изменений.';
+  const freezeInstruction = policy?.freezeMode?.enabled ? getFreezeModeInstruction() : '';
+  const freezeAuditInstruction = policy?.freezeMode?.enabled ? getFreezeModeAuditInstruction() : '';
   return [
+    freezeInstruction ? `=== ${freezeInstruction} ===` : null,
+    freezeAuditInstruction ? `=== ${freezeAuditInstruction} ===` : null,
     `=== ${instructions} ===`,
     `Request: ${request}`,
     `Step: ${step.title}`,
@@ -314,7 +325,7 @@ async function buildStepPrompt({ step, memorySummary, completedSteps, request, p
     completedSteps.length ? completedSteps.map((item) => `- ${item.title}`).join('\n') : '—',
     '',
     'Return format:',
-    '{ "summary": "...", "changes": [{ "path": "src/file.js", "action": "update", "content": "..." }], "validationCommands": ["npm test"] }',
+    '{ "summary": "...", "findings": [{ "severity": "low|medium|high", "message": "...", "file": "src/file.js" }], "validationCommands": ["npm test"] }',
   ].filter(Boolean).join('\n');
 }
 
@@ -409,7 +420,7 @@ export async function planPhase(taskId, request, options = {}) {
   const allowedShellCommands = options.allowedShellCommands || await listAllowedShellCommands(projectRoot);
   const retries = Number.isFinite(Number(options.retryMax)) ? Math.max(1, Number(options.retryMax)) : 3;
   const planMessages = [
-    { role: 'system', content: await buildPlanPrompt({ task, request, memorySummary, taskContext, conversationSummary, allowedShellCommands, projectRoot, locale: options.locale || 'ru' }) },
+    { role: 'system', content: await buildPlanPrompt({ task, request, memorySummary, taskContext, conversationSummary, allowedShellCommands, projectRoot, locale: options.locale || 'ru', policy }) },
     { role: 'user', content: request },
   ];
 
@@ -456,6 +467,7 @@ export async function executeStep(taskId, step, options = {}) {
       request,
       projectRoot,
       locale: options.locale || 'ru',
+      policy,
     });
     try {
       const response = await generatePatch({
@@ -469,6 +481,34 @@ export async function executeStep(taskId, step, options = {}) {
         ],
       });
       const parsed = parseJsonPayload(response);
+      if (isFreezeModeEnabled(policy)) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Audit response must be a JSON object.');
+        }
+        const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+        const result = {
+          stepId: step.stepId,
+          status: 'completed',
+          attempts: attempt,
+          summary: String(parsed.summary || step.title || '').trim(),
+          patchId: null,
+          auditMode: true,
+          findings,
+          testResult: 'skipped',
+        };
+        if (options.runId) {
+          void trackEvent(projectRoot, {
+            type: 'auto.step',
+            runId: options.runId,
+            taskId,
+            stepId: step.stepId,
+            status: result.status,
+            auditMode: true,
+            findingsCount: findings.length,
+          });
+        }
+        return result;
+      }
       const changes = Array.isArray(parsed.changes) ? parsed.changes : [];
       if (!changes.length) {
         throw new Error('Step response must include changes.');

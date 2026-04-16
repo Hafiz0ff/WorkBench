@@ -249,6 +249,13 @@ export async function ensureProjectMemory(projectRoot) {
       activeRole: null,
       selectedModel: null,
       currentTaskId: null,
+      freezeMode: {
+        enabled: false,
+        activatedAt: null,
+        deactivatedAt: null,
+        reason: '',
+        instruction: 'Отныне: режим ТОЛЬКО ЧТЕНИЕ. Анализируй код, давай советы по дебаггингу, но не генерируй никаких изменяющих патчей',
+      },
       projectRoot: root,
     };
     await atomicWriteFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
@@ -284,6 +291,13 @@ export async function updateProjectState(projectRoot, patch) {
     activeRole: null,
     selectedModel: null,
     currentTaskId: null,
+    freezeMode: {
+      enabled: false,
+      activatedAt: null,
+      deactivatedAt: null,
+      reason: '',
+      instruction: 'Отныне: режим ТОЛЬКО ЧТЕНИЕ. Анализируй код, давай советы по дебаггингу, но не генерируй никаких изменяющих патчей',
+    },
     projectRoot: root,
   };
   const timestamp = nowIso();

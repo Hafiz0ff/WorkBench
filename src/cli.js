@@ -112,6 +112,7 @@ import {
   writeGlobalConfig,
 } from './workspace.js';
 import { BASE_SYSTEM_INSTRUCTIONS, composePromptLayers, formatPromptInspection } from './prompt-composer.js';
+import { setProjectFreezeMode } from './freeze-mode.js';
 import {
   abortRun as abortAutoRun,
   getRunStatus as getAutoRunStatus,
@@ -384,6 +385,10 @@ function parseOptions(argv) {
     }
     if (value === '--command') {
       options.command = argv[++i];
+      continue;
+    }
+    if (value === '--reason') {
+      options.reason = argv[++i];
       continue;
     }
     if (value === '--port') {
@@ -750,6 +755,7 @@ async function runProjectStart(projectPath, options, t, locale) {
       taskInstruction,
       allowedShellCommands,
       projectRoot: project.root,
+      policy,
     }),
     policy,
     t,
@@ -1251,7 +1257,7 @@ async function refreshVectorIndex(projectRoot, policy) {
   }
 }
 
-async function handleProjectCommand(subcommand, t, locale) {
+async function handleProjectCommand(subcommand, options, t, locale) {
   const projectRoot = process.cwd();
 
   if (subcommand === 'init') {
@@ -1269,6 +1275,7 @@ async function handleProjectCommand(subcommand, t, locale) {
 
   if (subcommand === 'status') {
     const status = await getProjectMemoryStatus(projectRoot);
+    const state = await readProjectState(projectRoot);
     const policy = await readProjectPolicy(projectRoot);
     const patchStatus = await getPatchStatus(projectRoot);
     const extensions = await listInstalledExtensions(projectRoot);
@@ -1289,6 +1296,7 @@ async function handleProjectCommand(subcommand, t, locale) {
     console.log(t('common.selectedProvider', { provider: status.selectedProvider || t('common.notSet') }));
     console.log(t('common.activeRole', { role: status.activeRole || t('common.notSet') }));
     console.log(t('common.selectedModel', { model: status.selectedModel || t('common.notSet') }));
+    console.log(t('project.freezeModeLabel', { value: state?.freezeMode?.enabled ? t('project.freezeModeEnabled') : t('project.freezeModeDisabled') }));
     console.log(t('policy.approvalModeLabel', { mode: t(`policy.approvalMode.${policy.approvalMode}`) }));
     console.log(t('policy.filePath', { path: getPolicyPath(projectRoot) }));
     console.log(t('common.currentTask', { id: taskState ? `${taskState.id} (${taskState.title})` : t('common.notSet') }));
@@ -1299,6 +1307,16 @@ async function handleProjectCommand(subcommand, t, locale) {
         console.log(t('common.summaryNames', { names: summaries.join(', ') }));
       }
     }
+    return;
+  }
+
+  if (subcommand === 'freeze' || subcommand === 'unfreeze') {
+    const enabled = subcommand === 'freeze';
+    const reason = String(options.reason || options._.join(' ') || '').trim();
+    const result = await setProjectFreezeMode(projectRoot, enabled, { reason });
+    console.log(t(enabled ? 'project.freezeEnabled' : 'project.freezeDisabled'));
+    console.log(t('project.freezeModeLabel', { value: result.freezeMode.enabled ? t('project.freezeModeEnabled') : t('project.freezeModeDisabled') }));
+    console.log(t('policy.filePath', { path: getPolicyPath(projectRoot) }));
     return;
   }
 
@@ -2428,6 +2446,7 @@ async function handlePromptCommand(subcommand, options, t, locale) {
   const memorySummary = await summarizeCurrentMemory(projectRoot);
   const currentTask = await getCurrentTask(projectRoot);
   const state = await readProjectState(projectRoot);
+  const policy = await readProjectPolicy(projectRoot);
   const provider = await getProvider(projectRoot, state?.selectedProvider || null);
   const model = state?.selectedModel || provider.defaultModel;
   const taskConversation = currentTask
@@ -2454,6 +2473,7 @@ async function handlePromptCommand(subcommand, options, t, locale) {
     taskInstruction,
     allowedShellCommands,
     projectRoot,
+    policy,
   });
 
   if (subcommand === 'inspect') {
@@ -2727,6 +2747,7 @@ async function handleTaskCommand(subcommand, options, t, locale) {
         taskInstruction,
         allowedShellCommands: await listAllowedShellCommands(project.root),
         projectRoot: project.root,
+        policy: await readProjectPolicy(project.root),
       }),
       taskTools: {
         currentTaskId: task.id,
@@ -2994,6 +3015,9 @@ async function handlePatchCommand(subcommand, options, t, locale) {
       return;
     }
     if (!result.applied) {
+      const failureReason = result.reason === 'freeze_mode_read_only'
+        ? t('patch.freezeModeReadOnly')
+        : result.reason || t('common.notSet');
       if (result.testOutcome?.rolledBack) {
         console.log(t('patch.applied', { id: result.patch.patchId }));
         console.log(t('patch.testsRollback'));
@@ -3010,7 +3034,7 @@ async function handlePatchCommand(subcommand, options, t, locale) {
         }
         console.log(t('patch.rollbackDone'));
       } else {
-        console.log(t('patch.applyFailed', { reason: result.reason || t('common.notSet') }));
+        console.log(t('patch.applyFailed', { reason: failureReason }));
       }
       return;
     }
@@ -3482,7 +3506,7 @@ async function main() {
   }
 
   if (command === 'project') {
-    await handleProjectCommand(subcommand, t, locale);
+    await handleProjectCommand(subcommand, options, t, locale);
     return;
   }
 

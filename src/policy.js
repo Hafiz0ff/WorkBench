@@ -82,6 +82,13 @@ const DEFAULT_POLICY = {
       ollama: {},
     },
   },
+  freezeMode: {
+    enabled: false,
+    activatedAt: null,
+    deactivatedAt: null,
+    reason: '',
+    instruction: 'Отныне: режим ТОЛЬКО ЧТЕНИЕ. Анализируй код, давай советы по дебаггингу, но не генерируй никаких изменяющих патчей',
+  },
   hooks: {
     enabled: false,
     telegram: {
@@ -386,6 +393,25 @@ function isAutoLikeMode(mode) {
   return ['auto-safe', 'auto', 'auto-with-tests'].includes(String(mode || '').trim().toLowerCase());
 }
 
+function normalizeFreezeMode(value = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    ...DEFAULT_POLICY.freezeMode,
+    ...source,
+    enabled: source.enabled === true,
+    activatedAt: typeof source.activatedAt === 'string' && source.activatedAt.trim()
+      ? source.activatedAt.trim()
+      : DEFAULT_POLICY.freezeMode.activatedAt,
+    deactivatedAt: typeof source.deactivatedAt === 'string' && source.deactivatedAt.trim()
+      ? source.deactivatedAt.trim()
+      : DEFAULT_POLICY.freezeMode.deactivatedAt,
+    reason: typeof source.reason === 'string' ? source.reason.trim() : DEFAULT_POLICY.freezeMode.reason,
+    instruction: typeof source.instruction === 'string' && source.instruction.trim()
+      ? source.instruction.trim()
+      : DEFAULT_POLICY.freezeMode.instruction,
+  };
+}
+
 function normalizePolicy(policy = {}) {
   const allowedReadGlobs = Array.isArray(policy.allowedReadGlobs) ? policy.allowedReadGlobs : DEFAULT_POLICY.allowedReadGlobs;
   const allowedWriteGlobs = Array.isArray(policy.allowedWriteGlobs) ? policy.allowedWriteGlobs : DEFAULT_POLICY.allowedWriteGlobs;
@@ -435,6 +461,7 @@ function normalizePolicy(policy = {}) {
         : DEFAULT_POLICY.stats.statsFile,
     },
     budget: normalizeBudgetConfig(policy.budget || DEFAULT_POLICY.budget),
+    freezeMode: normalizeFreezeMode(policy.freezeMode || DEFAULT_POLICY.freezeMode),
     hooks: {
       ...DEFAULT_POLICY.hooks,
       ...(policy.hooks || {}),
@@ -623,6 +650,10 @@ function makeDecision(decision, reason, extra = {}) {
   };
 }
 
+function isFreezeModeEnabled(policy) {
+  return policy?.freezeMode?.enabled === true;
+}
+
 export function getDefaultPolicy() {
   return normalizePolicy(DEFAULT_POLICY);
 }
@@ -679,6 +710,12 @@ export async function listAllowedShellCommands(projectRoot) {
 export function evaluatePathPolicy(policyInput, targetPath, operation = 'read', projectRoot = process.cwd()) {
   const policy = normalizePolicy(policyInput);
   const relativePath = normalizeRelativePath(coerceProjectRoot(projectRoot), targetPath);
+  if (isFreezeModeEnabled(policy) && operation !== 'read') {
+    return makeDecision('blocked', `Freeze mode is active: write access is disabled for ${relativePath}`, {
+      path: relativePath,
+      operation,
+    });
+  }
   const blocked = matchesAnyPattern(relativePath, policy.blockedPaths);
   if (blocked) {
     return makeDecision('blocked', `Path is blocked by policy: ${relativePath}`, {
@@ -736,6 +773,14 @@ export function evaluateCommandPolicy(policyInput, command, args = []) {
   const policy = normalizePolicy(policyInput);
   const fullCommand = normalizeCommandLine(command, args);
   const category = classifyCommand(command, args);
+
+  if (isFreezeModeEnabled(policy) && ['mutating', 'install', 'network'].includes(category)) {
+    return makeDecision('blocked', `Freeze mode is active: command is not allowed: ${fullCommand}`, {
+      command,
+      args,
+      category,
+    });
+  }
 
   if (matchesAnyPattern(fullCommand, policy.blockedCommands) || matchesAnyPattern(command, policy.blockedCommands)) {
     return makeDecision('blocked', `Command is blocked by policy: ${fullCommand}`, {
@@ -830,6 +875,7 @@ export function getPolicySummary(policyInput) {
       auth: { ...(policy.server?.auth || {}) },
       corsOrigins: Array.isArray(policy.server?.corsOrigins) ? [...policy.server.corsOrigins] : [],
     },
+    freezeMode: { ...(policy.freezeMode || {}) },
     allowedReadGlobs: [...policy.allowedReadGlobs],
     allowedWriteGlobs: [...policy.allowedWriteGlobs],
     blockedPaths: [...policy.blockedPaths],

@@ -765,7 +765,7 @@ export async function scaffoldExtension(projectRoot, name, options = {}) {
     throw new Error(`Extension directory already exists: ${directory}`);
   }
   await ensureDir(directory);
-  const workbenchVersion = await readWorkspaceVersion(root).catch(() => '2.3.1');
+  const workbenchVersion = await readWorkspaceVersion(root).catch(() => '2.3.2');
   const hooks = normalizeArray(options.hooks || []);
   const manifest = {
     name: pluginName,

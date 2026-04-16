@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.2
+- Added Freeze Mode as a reversible pre-release read-only ritual for the CLI, policy layer, prompt stack, and auto-agent execution path.
+- Added audit-only validation so Freeze Mode returns findings instead of staging or applying patches.
+- Updated the release line, README, and release notes for the Freeze Mode release.
+
 ## 2.3.1
 - Added intent-based micro-interactions for the SwiftUI client and web dashboard.
 - Replaced linear transitions with spring-driven motion and pointer-aware press feedback.

@@ -842,6 +842,7 @@ async function getProjectStatusPayload(projectRoot) {
     provider: providerSelection?.providerName || state?.selectedProvider || null,
     model: providerSelection?.model || state?.selectedModel || null,
     role: state?.activeRole || null,
+    freezeMode: state?.freezeMode || null,
     task: task ? serializeTask(task) : null,
     currentTaskId: state?.currentTaskId || null,
   };

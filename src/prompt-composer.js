@@ -1,4 +1,5 @@
 import { getDefaultPolicy } from './policy.js';
+import { getFreezeModeAuditInstruction, getFreezeModeInstruction, isFreezeModeEnabled } from './freeze-mode.js';
 
 export const BASE_SYSTEM_INSTRUCTIONS = [
   'Ты локальный coding assistant и работаешь только внутри одного проекта за раз.',
@@ -89,18 +90,27 @@ export async function composePromptLayers({
   taskInstruction,
   allowedShellCommands,
   projectRoot,
+  policy = null,
 }) {
   if (!roleProfile) {
     throw new Error('A role profile is required to compose a prompt.');
   }
 
   const allowedCommands = await resolveAllowedShellCommands(projectRoot, allowedShellCommands);
+  const freezeInstruction = isFreezeModeEnabled(policy)
+    ? getFreezeModeInstruction()
+    : '';
+  const freezeAuditInstruction = isFreezeModeEnabled(policy)
+    ? getFreezeModeAuditInstruction()
+    : '';
 
   const layers = [
     {
       key: 'base',
       title: 'БАЗОВЫЕ СИСТЕМНЫЕ ИНСТРУКЦИИ',
       content: [
+        freezeInstruction,
+        freezeAuditInstruction,
         baseInstructions.trim(),
         '',
         `Доступные shell-команды: ${allowedCommands.join(', ')}`,

@@ -1,6 +1,6 @@
 # WorkBench v2.3.1
 
-**Current release.** This note summarizes the motion and validation pass that followed `2.3.0`, so the release page stays aligned with the latest shipped build.
+**Previous release.** This note summarizes the motion and validation pass that followed `2.3.0`.
 
 ## 2.3.1 - Intent-based micro-interactions
 

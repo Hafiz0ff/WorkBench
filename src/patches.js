@@ -435,6 +435,11 @@ export async function stageProjectPatch(projectRoot, input = {}) {
   const root = normalizeRoot(projectRoot);
   await ensurePatchWorkspace(root);
   const policy = input.policy || await readProjectPolicy(root);
+  if (policy.freezeMode?.enabled) {
+    const error = new Error('Freeze mode is active: patch generation is disabled.');
+    error.code = 'FREEZE_MODE_ACTIVE';
+    throw error;
+  }
   const changeInputs = Array.isArray(input.changes) ? input.changes : [];
   if (!changeInputs.length) {
     throw new Error('No file changes were provided.');
@@ -688,6 +693,14 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
   }
 
   const artifact = await readPatchArtifact(root, current.patchId) || current;
+  if (policy.freezeMode?.enabled) {
+    return {
+      applied: false,
+      reason: 'freeze_mode_read_only',
+      patch: artifact,
+      validationResults: [],
+    };
+  }
   if (artifact.status !== 'pending') {
     return {
       applied: false,
@@ -868,6 +881,7 @@ export async function rejectPatchArtifact(projectRoot, patch = null) {
 export async function rollbackPatch(projectRoot, patch = null) {
   const root = normalizeRoot(projectRoot);
   await ensurePatchWorkspace(root);
+  const policy = await readProjectPolicy(root);
   const current = patch || await getLatestPatch(root);
   if (!current) {
     return {
@@ -878,6 +892,13 @@ export async function rollbackPatch(projectRoot, patch = null) {
   }
 
   const artifact = await readPatchArtifact(root, current.patchId) || current;
+  if (policy.freezeMode?.enabled) {
+    return {
+      rolledBack: false,
+      reason: 'freeze_mode_read_only',
+      patch: artifact,
+    };
+  }
   const changes = Array.isArray(artifact.changes) ? [...artifact.changes].reverse() : [];
   for (const change of changes) {
     const absolutePath = resolveWithinRoot(root, change.path);

@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-2.3.1-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-2.3.2-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -622,17 +622,17 @@ Supported GUI flows:
 
 Current release:
 
-- WorkBench `2.3.1`
-- Release notes: `docs/release-notes-2.3.1.md`
+- WorkBench `2.3.2`
+- Release notes: `docs/release-notes-2.3.2.md`
 - Changelog: `CHANGELOG.md`
-- Summary: Intent-based micro-interactions, deterministic validation fixes, and release refresh
+- Summary: Freeze Mode, audit-only validation, and release hardening
 
 Текущий релиз:
 
-- WorkBench `2.3.1`
-- Release notes: `docs/release-notes-2.3.1.md`
+- WorkBench `2.3.2`
+- Release notes: `docs/release-notes-2.3.2.md`
 - Changelog: `CHANGELOG.md`
-- Сводка: Intent-based micro-interactions, deterministic validation fixes и обновление релиза
+- Сводка: Freeze Mode, audit-only validation и укрепление релизного процесса
 
 Version history at a glance:
 
@@ -645,6 +645,7 @@ Version history at a glance:
 - `2.0.0` - unified multi-provider runtime
 - `2.1.0` - token budget and usage limits
 - `2.2.0` - semantic vector search and memory indexing
+- `2.3.2` - Freeze Mode, audit-only validation, and release hardening
 - `2.3.1` - intent-based micro-interactions, deterministic validation fixes, and release refresh
 
 История версий вкратце:
@@ -658,6 +659,7 @@ Version history at a glance:
 - `2.0.0` - unified multi-provider runtime
 - `2.1.0` - token budget и лимиты использования
 - `2.2.0` - semantic vector search и memory indexing
+- `2.3.2` - Freeze Mode, audit-only validation и укрепление релизного процесса
 - `2.3.1` - intent-based micro-interactions, deterministic validation fixes и обновление релиза
 
 Release preparation scripts live in `scripts/`:
@@ -687,6 +689,7 @@ Release docs:
 - `docs/release-notes-2.0.0.md`
 - `docs/release-notes-2.1.0.md`
 - `docs/release-notes-2.2.0.md`
+- `docs/release-notes-2.3.2.md`
 - `docs/release-notes-2.3.1.md`
 - `docs/extension-api.md`
 
@@ -697,4 +700,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `2.3.1`.
+- The current release line is `2.3.2`.

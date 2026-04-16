@@ -7,6 +7,8 @@ import { appendMessage } from '../src/conversation.js';
 import { createTask } from '../src/tasks.js';
 import { abortRun, executeStep, planPhase, runAuto } from '../src/auto-agent.js';
 import { stageProjectPatch } from '../src/patches.js';
+import { readProjectPolicy } from '../src/policy.js';
+import { setProjectFreezeMode } from '../src/freeze-mode.js';
 
 async function createTempProject() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'local-codex-auto-'));
@@ -105,6 +107,51 @@ test('auto execute step applies patch to disk', async () => {
   assert.equal(result.status, 'completed');
   assert.ok(result.patchId);
   assert.equal(await readFile(path.join(root, 'src/generated.txt'), 'utf8'), 'hello from auto mode');
+});
+
+test('auto execute step audits only in freeze mode', async () => {
+  const root = await createTempProject();
+  const task = await createTask(root, {
+    title: 'Auto freeze audit flow',
+    userRequest: 'Проверить аудит в freeze mode',
+  });
+  const freezeResult = await setProjectFreezeMode(root, true, { reason: 'release candidate' });
+  const provider = createSequencedProvider([
+    JSON.stringify({
+      summary: 'Audit risky control flow',
+      findings: [
+        {
+          severity: 'high',
+          message: 'Potential null dereference before validation.',
+          file: 'src/generated.txt',
+        },
+      ],
+      validationCommands: [],
+    }),
+  ]);
+  const policy = await readProjectPolicy(root);
+
+  const result = await executeStep(task.id, {
+    stepId: 'step-1',
+    title: 'Audit generated file',
+    description: 'Inspect the code path for logical defects',
+    files: ['src/generated.txt'],
+  }, {
+    projectRoot: root,
+    provider,
+    model: 'mock-model',
+    request: 'Audit generated file',
+    taskFolderPath: task.folderPath,
+    noTests: true,
+    locale: 'ru',
+    policy: freezeResult.policy || policy,
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.auditMode, true);
+  assert.equal(result.patchId, null);
+  assert.equal(result.findings.length, 1);
+  await assert.rejects(() => readFile(path.join(root, 'src', 'generated.txt'), 'utf8'));
 });
 
 test('auto run emits lifecycle events', async () => {
