@@ -789,7 +789,7 @@ export async function applyPatchArtifact(projectRoot, patch = null, options = {}
       policy,
     }).catch(() => {});
   void refreshVectorIndexAfterPatch(root, policy);
-  void trackEvent(root, {
+  await trackEvent(root, {
     type: testOutcome.rolledBack ? 'patch.rolledBack' : 'patch.applied',
     patchId: nextPatch.patchId,
     taskId: nextPatch.taskId || null,
@@ -851,7 +851,7 @@ export async function rejectPatchArtifact(projectRoot, patch = null) {
     patchPath: path.relative(root, artifactPath),
   };
   await writePendingPatch(root, pending);
-  void trackEvent(root, {
+  await trackEvent(root, {
     type: 'patch.rejected',
     patchId: nextPatch.patchId,
     taskId: nextPatch.taskId || null,
@@ -925,7 +925,7 @@ export async function rollbackPatch(projectRoot, patch = null) {
     patchPath: path.relative(root, artifactPath),
   };
   await writePendingPatch(root, pending);
-  void trackEvent(root, {
+  await trackEvent(root, {
     type: 'patch.rolledBack',
     patchId: nextPatch.patchId,
     taskId: nextPatch.taskId || null,

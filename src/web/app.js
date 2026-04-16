@@ -516,6 +516,132 @@ function buttonMarkup(label, action, attrs = '', variant = '') {
   return `<button class="button ${variant}" data-action="${action}" ${attrs}>${label}</button>`;
 }
 
+const intentPressState = new WeakMap();
+const intentPressSelector = 'button, .nav-item, .list-item[data-action]';
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getIntentTarget(target) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  return target.closest(intentPressSelector);
+}
+
+function applyIntentVector(element, vector) {
+  element.style.setProperty('--intent-x', `${vector.x}px`);
+  element.style.setProperty('--intent-y', `${vector.y}px`);
+  element.style.setProperty('--intent-scale', String(vector.scale));
+  element.style.setProperty('--intent-rotate', `${vector.rotate}deg`);
+}
+
+function clearIntentVector(element) {
+  element.style.setProperty('--intent-x', '0px');
+  element.style.setProperty('--intent-y', '0px');
+  element.style.setProperty('--intent-scale', '1');
+  element.style.setProperty('--intent-rotate', '0deg');
+}
+
+function beginIntentPress(element, event) {
+  const rect = element.getBoundingClientRect();
+  const offsetX = event.clientX - (rect.left + rect.width / 2);
+  const offsetY = event.clientY - (rect.top + rect.height / 2);
+  const pointerBias = event.pointerType === 'touch' ? 0.96 : 0.98;
+  const vector = {
+    x: clamp(offsetX * 0.05, -8, 8),
+    y: clamp(offsetY * 0.05, -8, 8),
+    scale: pointerBias,
+    rotate: clamp(offsetX * 0.012, -1.8, 1.8).toFixed(2),
+  };
+
+  intentPressState.set(element, {
+    startedAt: performance.now(),
+    startX: event.clientX,
+    startY: event.clientY,
+    clearTimer: null,
+  });
+
+  applyIntentVector(element, vector);
+  element.dataset.intentPress = 'down';
+}
+
+function finishIntentPress(element, event) {
+  const state = intentPressState.get(element);
+  if (!state) {
+    return;
+  }
+
+  const dx = event.clientX - state.startX;
+  const dy = event.clientY - state.startY;
+  const distance = Math.hypot(dx, dy);
+  const duration = Math.max(16, performance.now() - state.startedAt);
+  const speed = distance / duration;
+  const releaseVector = {
+    x: clamp(dx * 0.04, -6, 6),
+    y: clamp(dy * 0.04, -6, 6),
+    scale: clamp(1 + (speed * 0.01), 1, 1.012).toFixed(3),
+    rotate: clamp(dx * 0.01, -1.4, 1.4).toFixed(2),
+  };
+
+  applyIntentVector(element, releaseVector);
+  element.dataset.intentPress = 'up';
+
+  if (state.clearTimer) {
+    window.clearTimeout(state.clearTimer);
+  }
+  state.clearTimer = window.setTimeout(() => {
+    element.dataset.intentPress = '';
+    clearIntentVector(element);
+    intentPressState.delete(element);
+  }, 180);
+}
+
+function cancelIntentPress(element) {
+  const state = intentPressState.get(element);
+  if (state?.clearTimer) {
+    window.clearTimeout(state.clearTimer);
+  }
+  element.dataset.intentPress = '';
+  clearIntentVector(element);
+  intentPressState.delete(element);
+}
+
+function installIntentMicroInteractions() {
+  app.addEventListener('pointerdown', (event) => {
+    const element = getIntentTarget(event.target);
+    if (!element || event.button !== 0) {
+      return;
+    }
+    beginIntentPress(element, event);
+  });
+
+  app.addEventListener('pointerup', (event) => {
+    const element = getIntentTarget(event.target);
+    if (!element) {
+      return;
+    }
+    finishIntentPress(element, event);
+  });
+
+  app.addEventListener('pointercancel', (event) => {
+    const element = getIntentTarget(event.target);
+    if (!element) {
+      return;
+    }
+    cancelIntentPress(element);
+  });
+
+  window.addEventListener('pointerup', () => {
+    document.querySelectorAll('[data-intent-press="down"], [data-intent-press="up"]').forEach((element) => {
+      if (element instanceof HTMLElement && !element.matches(':hover')) {
+        cancelIntentPress(element);
+      }
+    });
+  });
+}
+
 function emptyState(title, text, action = '') {
   return `
     <div class="card">
@@ -1984,6 +2110,7 @@ window.addEventListener('hashchange', () => {
 
 (async function boot() {
   try {
+    installIntentMicroInteractions();
     await reloadView();
     connectEvents();
   } catch (error) {

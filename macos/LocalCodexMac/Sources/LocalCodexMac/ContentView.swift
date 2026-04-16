@@ -49,7 +49,10 @@ struct ContentView: View {
                     SettingsView()
                 }
             }
+            .id(store.selectedSection)
+            .transition(.opacity.combined(with: .scale(scale: 0.985)))
             .navigationTitle(detailTitle)
+            .animation(IntentMotion.selection, value: store.selectedSection)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
@@ -57,16 +60,19 @@ struct ContentView: View {
                     } label: {
                         Label(store.localeStore.text("gui.toolbar.openProject"), systemImage: "folder")
                     }
+                    .buttonStyle(.intent(.text))
                     Button {
                         Task { await store.refreshWorkspace() }
                     } label: {
                         Label(store.localeStore.text("gui.toolbar.refresh"), systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(.intent(.text))
                     Button {
                         Task { await store.initializeWorkspace() }
                     } label: {
                         Label(store.localeStore.text("gui.toolbar.initWorkspace"), systemImage: "plus.circle")
                     }
+                    .buttonStyle(.intent(.text))
                 }
             }
         }

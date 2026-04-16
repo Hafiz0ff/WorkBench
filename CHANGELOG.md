@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.1
+- Added intent-based micro-interactions for the SwiftUI client and web dashboard.
+- Replaced linear transitions with spring-driven motion and pointer-aware press feedback.
+- Fixed budget cache refresh tests with deterministic timestamps and made patch lifecycle events persist before return.
+
 ## 2.3.0
 - Added the Extension SDK with plugin manifests, hook runners, permission-guarded APIs, and custom commands.
 - Added `app extensions scaffold|info|enable|disable|remove` plus `app ext <command>` dispatch for plugin commands.

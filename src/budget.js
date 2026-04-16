@@ -567,6 +567,9 @@ function finalizeProviderCache(raw) {
 export async function refreshCache(projectRoot, options = {}) {
   const root = normalizeRootPath(projectRoot);
   const budget = await getBudgetPolicy(root);
+  const now = Number.isFinite(Number(options.now))
+    ? Number(options.now)
+    : Date.now();
   const entries = await listUsageEntries(root, {
     from: options.from || null,
     to: options.to || null,
@@ -579,7 +582,6 @@ export async function refreshCache(projectRoot, options = {}) {
       providerSet.add(String(entry.provider).toLowerCase());
     }
   }
-  const now = Date.now();
   const windows = {
     today: startOfUtcDay(now).getTime(),
     week: startOfUtcDay(now - (6 * DAY_MS)).getTime(),

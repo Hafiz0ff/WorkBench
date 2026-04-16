@@ -3,7 +3,7 @@
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?style=flat-square&logo=apple&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-local-FF9D00?style=flat-square)
 ![Russian-first](https://img.shields.io/badge/UI-Russian%20first-16A34A?style=flat-square)
-![Release](https://img.shields.io/badge/release-2.3.0-4F46E5?style=flat-square)
+![Release](https://img.shields.io/badge/release-2.3.1-4F46E5?style=flat-square)
 
 ## Contents
 
@@ -622,17 +622,17 @@ Supported GUI flows:
 
 Current release:
 
-- WorkBench `2.3.0`
-- Release notes: `docs/release-notes-2.3.0.md`
+- WorkBench `2.3.1`
+- Release notes: `docs/release-notes-2.3.1.md`
 - Changelog: `CHANGELOG.md`
-- Summary: Extension SDK, plugin permissions, and custom commands
+- Summary: Intent-based micro-interactions, deterministic validation fixes, and release refresh
 
 Текущий релиз:
 
-- WorkBench `2.3.0`
-- Release notes: `docs/release-notes-2.3.0.md`
+- WorkBench `2.3.1`
+- Release notes: `docs/release-notes-2.3.1.md`
 - Changelog: `CHANGELOG.md`
-- Сводка: Extension SDK, permissions плагинов и custom commands
+- Сводка: Intent-based micro-interactions, deterministic validation fixes и обновление релиза
 
 Version history at a glance:
 
@@ -645,7 +645,7 @@ Version history at a glance:
 - `2.0.0` - unified multi-provider runtime
 - `2.1.0` - token budget and usage limits
 - `2.2.0` - semantic vector search and memory indexing
-- `2.3.0` - Extension SDK, plugin permissions, and custom commands
+- `2.3.1` - intent-based micro-interactions, deterministic validation fixes, and release refresh
 
 История версий вкратце:
 
@@ -658,7 +658,7 @@ Version history at a glance:
 - `2.0.0` - unified multi-provider runtime
 - `2.1.0` - token budget и лимиты использования
 - `2.2.0` - semantic vector search и memory indexing
-- `2.3.0` - Extension SDK, permissions плагинов и custom commands
+- `2.3.1` - intent-based micro-interactions, deterministic validation fixes и обновление релиза
 
 Release preparation scripts live in `scripts/`:
 
@@ -687,7 +687,7 @@ Release docs:
 - `docs/release-notes-2.0.0.md`
 - `docs/release-notes-2.1.0.md`
 - `docs/release-notes-2.2.0.md`
-- `docs/release-notes-2.3.0.md`
+- `docs/release-notes-2.3.1.md`
 - `docs/extension-api.md`
 
 Signing and notarization are intentionally environment-driven. Credentials are expected from environment variables or a local secure setup, not from the repository.
@@ -697,4 +697,4 @@ Signing and notarization are intentionally environment-driven. Credentials are e
 
 - Internal identifiers such as `app`, `LocalCodexMac`, and `.local-codex/` remain unchanged for compatibility.
 - Public product branding is `Workbench`.
-- The current release line is `2.3.0`.
+- The current release line is `2.3.1`.

@@ -81,7 +81,7 @@ test('refreshCache aggregates periods and provider breakdowns', async () => {
   ];
   await writeUsageLog(root, entries);
 
-  const cache = await refreshCache(root);
+  const cache = await refreshCache(root, { now });
   assert.equal(cache.byProvider.openai.today.total, 125);
   assert.equal(cache.byProvider.openai.week.total, 185);
   assert.equal(cache.byProvider.openai.month.total, 185);

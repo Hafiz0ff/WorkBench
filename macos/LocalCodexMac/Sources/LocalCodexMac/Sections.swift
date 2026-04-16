@@ -28,11 +28,13 @@ struct ProjectView: View {
                             Button(store.localeStore.text("gui.project.bannerDismiss")) {
                                 store.dismissProjectLaunchBanner()
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.intent(.text))
                             .foregroundStyle(.secondary)
                         }
                         .padding(12)
                         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .animation(IntentMotion.reveal, value: store.projectLaunchBannerVisible)
                     }
 
                     GroupBox(store.localeStore.text("gui.project.composerTitle")) {
@@ -79,7 +81,7 @@ struct ProjectView: View {
                                     } label: {
                                         Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
                                     }
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.intent(.primary))
                                     .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                     Spacer(minLength: 12)
                                     Text(store.localeStore.text("gui.project.readyHint"))
@@ -94,7 +96,7 @@ struct ProjectView: View {
                                     } label: {
                                         Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
                                     }
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.intent(.primary))
                                     .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                     Text(store.localeStore.text("gui.project.readyHint"))
                                         .foregroundStyle(.secondary)
@@ -255,7 +257,7 @@ private struct QuickActionButton: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(2)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.intent(.secondary))
     }
 }
 
@@ -338,18 +340,22 @@ struct TasksView: View {
                                         Button(store.localeStore.text("gui.tasks.use")) {
                                             Task { await store.useTask(task.id) }
                                         }
+                                        .buttonStyle(.intent(.secondary))
                                         Button(store.localeStore.text("gui.tasks.archive")) {
                                             Task { await store.archiveTask(task.id) }
                                         }
+                                        .buttonStyle(.intent(.danger))
                                         Spacer()
                                     }
                                     VStack(alignment: .leading, spacing: 8) {
                                         Button(store.localeStore.text("gui.tasks.use")) {
                                             Task { await store.useTask(task.id) }
                                         }
+                                        .buttonStyle(.intent(.secondary))
                                         Button(store.localeStore.text("gui.tasks.archive")) {
                                             Task { await store.archiveTask(task.id) }
                                         }
+                                        .buttonStyle(.intent(.danger))
                                     }
                                 }
                             }
@@ -368,6 +374,7 @@ struct TasksView: View {
                 }
             }
         }
+        .animation(IntentMotion.selection, value: store.selectedTaskId)
     }
 }
 
@@ -436,18 +443,22 @@ struct RolesView: View {
                                         Button(store.localeStore.text("gui.roles.use")) {
                                             Task { await store.useRole(role.name) }
                                         }
+                                        .buttonStyle(.intent(.secondary))
                                         Button(store.localeStore.text("gui.roles.inspect")) {
                                             Task { await store.inspectRole(role.name) }
                                         }
+                                        .buttonStyle(.intent(.text))
                                         Spacer()
                                     }
                                     VStack(alignment: .leading, spacing: 8) {
                                         Button(store.localeStore.text("gui.roles.use")) {
                                             Task { await store.useRole(role.name) }
                                         }
+                                        .buttonStyle(.intent(.secondary))
                                         Button(store.localeStore.text("gui.roles.inspect")) {
                                             Task { await store.inspectRole(role.name) }
                                         }
+                                        .buttonStyle(.intent(.text))
                                     }
                                 }
                             }
@@ -468,6 +479,7 @@ struct RolesView: View {
                 }
             }
         }
+        .animation(IntentMotion.selection, value: store.selectedRoleName)
     }
 }
 
@@ -504,6 +516,7 @@ struct ExtensionsView: View {
                                 } label: {
                                     Label(store.localeStore.text("gui.extensions.installButton"), systemImage: "arrow.down.circle")
                                 }
+                                .buttonStyle(.intent(.primary))
                                 Text(store.localeStore.text("gui.extensions.installHint"))
                                     .foregroundStyle(.secondary)
                             }
@@ -513,6 +526,7 @@ struct ExtensionsView: View {
                                 } label: {
                                     Label(store.localeStore.text("gui.extensions.installButton"), systemImage: "arrow.down.circle")
                                 }
+                                .buttonStyle(.intent(.primary))
                                 Text(store.localeStore.text("gui.extensions.installHint"))
                                     .foregroundStyle(.secondary)
                             }
@@ -554,7 +568,7 @@ struct ExtensionsView: View {
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.intent(.text))
                                 Spacer()
                                 Text(entry.enabled == true ? store.localeStore.text("gui.extensions.statusEnabled") : store.localeStore.text("gui.extensions.statusDisabled"))
                                     .font(.caption)
@@ -589,30 +603,38 @@ struct ExtensionsView: View {
                                     Button(store.localeStore.text("gui.extensions.enable")) {
                                         Task { await store.enableExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.secondary))
                                     Button(store.localeStore.text("gui.extensions.disable")) {
                                         Task { await store.disableExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.danger))
                                     Button(store.localeStore.text("gui.extensions.update")) {
                                         Task { await store.updateExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.secondary))
                                     Button(store.localeStore.text("gui.extensions.remove")) {
                                         Task { await store.removeExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.danger))
                                     Spacer()
                                 }
                                 VStack(alignment: .leading, spacing: 8) {
                                     Button(store.localeStore.text("gui.extensions.enable")) {
                                         Task { await store.enableExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.secondary))
                                     Button(store.localeStore.text("gui.extensions.disable")) {
                                         Task { await store.disableExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.danger))
                                     Button(store.localeStore.text("gui.extensions.update")) {
                                         Task { await store.updateExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.secondary))
                                     Button(store.localeStore.text("gui.extensions.remove")) {
                                         Task { await store.removeExtension(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.danger))
                                 }
                             }
                         }
@@ -653,6 +675,7 @@ struct ExtensionsView: View {
                 }
             }
         }
+        .animation(IntentMotion.selection, value: store.selectedExtensionId)
     }
 
     private var selectedExtension: ExtensionRegistryEntry? {
@@ -730,7 +753,7 @@ struct RegistryView: View {
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.intent(.text))
                                 Spacer()
                                 Text(registryTrustLabel(entry))
                                     .font(.caption)
@@ -762,18 +785,22 @@ struct RegistryView: View {
                                     Button(store.localeStore.text("gui.registry.install")) {
                                         Task { await store.installRegistryEntry(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.primary))
                                     Button(store.localeStore.text("gui.registry.inspect")) {
                                         Task { await store.inspectRegistryEntry(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.text))
                                     Spacer()
                                 }
                                 VStack(alignment: .leading, spacing: 8) {
                                     Button(store.localeStore.text("gui.registry.install")) {
                                         Task { await store.installRegistryEntry(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.primary))
                                     Button(store.localeStore.text("gui.registry.inspect")) {
                                         Task { await store.inspectRegistryEntry(entry.id) }
                                     }
+                                    .buttonStyle(.intent(.text))
                                 }
                             }
                         }
@@ -813,6 +840,7 @@ struct RegistryView: View {
                 }
             }
         }
+        .animation(IntentMotion.selection, value: store.selectedRegistryId)
     }
 
     private var selectedRegistry: RegistryCatalogEntryFile? {
@@ -866,6 +894,7 @@ struct PromptInspectorView: View {
                         } label: {
                             Label(store.localeStore.text("gui.prompt.inspect"), systemImage: "wand.and.stars")
                         }
+                        .buttonStyle(.intent(.primary))
                         Text(store.localeStore.text("gui.prompt.hint"))
                             .foregroundStyle(.secondary)
                     }
@@ -875,6 +904,7 @@ struct PromptInspectorView: View {
                         } label: {
                             Label(store.localeStore.text("gui.prompt.inspect"), systemImage: "wand.and.stars")
                         }
+                        .buttonStyle(.intent(.primary))
                         Text(store.localeStore.text("gui.prompt.hint"))
                             .foregroundStyle(.secondary)
                     }
@@ -898,6 +928,7 @@ struct PromptInspectorView: View {
                 }
             }
         }
+        .animation(IntentMotion.selection, value: store.currentPatchStatusDisplay)
     }
 }
 
@@ -925,21 +956,25 @@ struct PatchesView: View {
                         } label: {
                             Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
                         }
+                        .buttonStyle(.intent(.secondary))
                         Button {
                             Task { await store.patchStatus() }
                         } label: {
                             Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
                         }
+                        .buttonStyle(.intent(.secondary))
                         Button {
                             Task { await store.applyPatch() }
                         } label: {
                             Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
                         }
+                        .buttonStyle(.intent(.primary))
                         Button {
                             Task { await store.rejectPatch() }
                         } label: {
                             Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
                         }
+                        .buttonStyle(.intent(.danger))
                         Spacer()
                     }
                     VStack(alignment: .leading, spacing: 8) {
@@ -949,11 +984,13 @@ struct PatchesView: View {
                             } label: {
                                 Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
                             }
+                            .buttonStyle(.intent(.secondary))
                             Button {
                                 Task { await store.patchStatus() }
                             } label: {
                                 Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
                             }
+                            .buttonStyle(.intent(.secondary))
                         }
                         HStack(spacing: 12) {
                             Button {
@@ -961,11 +998,13 @@ struct PatchesView: View {
                             } label: {
                                 Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
                             }
+                            .buttonStyle(.intent(.primary))
                             Button {
                                 Task { await store.rejectPatch() }
                             } label: {
                                 Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
                             }
+                            .buttonStyle(.intent(.danger))
                         }
                     }
                 }
@@ -989,6 +1028,7 @@ struct PatchesView: View {
                 }
             }
         }
+        .animation(IntentMotion.selection, value: store.sessionIsRunning)
     }
 }
 
@@ -1066,16 +1106,19 @@ struct SessionView: View {
                         } label: {
                             Label(store.localeStore.text("gui.session.start"), systemImage: "play.circle")
                         }
+                        .buttonStyle(.intent(.primary))
                         Button {
                             store.sendSessionInput(store.sessionInput)
                         } label: {
                             Label(store.localeStore.text("gui.session.send"), systemImage: "arrow.up.circle")
                         }
+                        .buttonStyle(.intent(.secondary))
                         Button {
                             store.stopSession()
                         } label: {
                             Label(store.localeStore.text("gui.session.stop"), systemImage: "stop.circle")
                         }
+                        .buttonStyle(.intent(.danger))
                         Spacer()
                         Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
                             .foregroundStyle(.secondary)
@@ -1088,11 +1131,13 @@ struct SessionView: View {
                             } label: {
                                 Label(store.localeStore.text("gui.session.start"), systemImage: "play.circle")
                             }
+                            .buttonStyle(.intent(.primary))
                             Button {
                                 store.sendSessionInput(store.sessionInput)
                             } label: {
                                 Label(store.localeStore.text("gui.session.send"), systemImage: "arrow.up.circle")
                             }
+                            .buttonStyle(.intent(.secondary))
                         }
                         HStack(spacing: 12) {
                             Button {
@@ -1100,6 +1145,7 @@ struct SessionView: View {
                             } label: {
                                 Label(store.localeStore.text("gui.session.stop"), systemImage: "stop.circle")
                             }
+                            .buttonStyle(.intent(.danger))
                             Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
                                 .foregroundStyle(.secondary)
                         }
@@ -1193,6 +1239,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            .animation(IntentMotion.selection, value: localeStore.locale)
         }
     }
 }
@@ -1212,6 +1259,7 @@ struct SectionShell<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
         }
+        .buttonStyle(.intent(.text))
     }
 }
 
@@ -1236,6 +1284,7 @@ struct StatusChip: View {
         .background(tint.opacity(0.08))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(tint.opacity(0.22)))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .animation(IntentMotion.selection, value: value)
     }
 }
 
@@ -1286,7 +1335,7 @@ struct EmptyStateView: View {
             }
             if let primaryActionTitle, let primaryAction {
                 Button(primaryActionTitle, action: primaryAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.intent(.primary))
             }
         }
         .frame(maxWidth: .infinity, minHeight: 210, alignment: .center)
@@ -1295,6 +1344,7 @@ struct EmptyStateView: View {
         .background(.quaternary.opacity(0.12))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .animation(IntentMotion.selection, value: primaryActionTitle)
     }
 }
 
