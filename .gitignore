@@ -3,6 +3,9 @@
 DerivedData/
 node_modules/
 dist/
+.env
+.env.*
+!.env.example
 .local-codex/
 .local-codex/events.jsonl
 .local-codex/stats.json

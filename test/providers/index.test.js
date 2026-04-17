@@ -60,7 +60,7 @@ test('provider registry resolves providers and falls back on retryable errors', 
   config.providers.openai = {
     ...config.providers.openai,
     enabled: true,
-    apiKey: 'sk-test',
+    apiKey: 'provider-test-key',
     baseUrl: `${providerServer.baseUrl}/openai-fail`,
     model: 'gpt-4o',
     defaultModel: 'gpt-4o',
@@ -118,7 +118,7 @@ test('provider registry does not fallback on authentication errors', async () =>
   config.providers.openai = {
     ...config.providers.openai,
     enabled: true,
-    apiKey: 'sk-test',
+    apiKey: 'provider-test-key',
     baseUrl: `${providerServer.baseUrl}/openai-auth`,
     model: 'gpt-4o',
     defaultModel: 'gpt-4o',

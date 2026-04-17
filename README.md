@@ -371,7 +371,7 @@ app memory rebuild
 ```bash
 app provider list
 app provider use ollama
-app provider set-key openai sk-proj-...
+app provider set-key openai your-openai-api-key
 app provider health
 app model list
 ```
@@ -503,9 +503,9 @@ Hooks react to internal WorkBench events and can trigger Telegram messages, shel
 
 Хуки реагируют на внутренние события WorkBench и могут отправлять сообщения в Telegram, запускать shell-скрипты или HTTP webhook.
 
-Telegram setup stores the bot token in `~/.workbench/secrets.json` and keeps only `@secret:telegram_bot_token` in project policy.
+Telegram setup stores the bot token in `~/.workbench/secrets.json` and keeps only `@secret:telegram_bot_token` in project policy. For shell-based local setup, use `.env.example` as the template for environment variables.
 
-При настройке Telegram токен бота сохраняется в `~/.workbench/secrets.json`, а в policy остаётся только ссылка `@secret:telegram_bot_token`.
+При настройке Telegram токен бота сохраняется в `~/.workbench/secrets.json`, а в policy остаётся только ссылка `@secret:telegram_bot_token`. Для локальной настройки через shell используйте `.env.example` как шаблон переменных окружения.
 
 ### Extensions and registry / Расширения и каталог
 

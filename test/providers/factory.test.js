@@ -30,7 +30,7 @@ test('provider factory loads the default provider and persists selection', async
   assert.equal(stateAfterUse.selectedProvider, 'openai');
   assert.equal(stateAfterUse.selectedModel, 'gpt-4o');
 
-  await setProviderApiKey(root, 'openai', 'sk-test');
+  await setProviderApiKey(root, 'openai', 'provider-test-key');
   const openaiProvider = await getProvider(root, 'openai');
   assert.equal(openaiProvider.name, 'openai');
   assert.equal(openaiProvider.defaultModel, 'gpt-4o');

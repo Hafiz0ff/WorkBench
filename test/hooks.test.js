@@ -94,7 +94,7 @@ test('sendTelegram resolves secrets and posts the expected payload', async () =>
   try {
     process.env.WORKBENCH_HOME = workbenchHome;
     await fs.writeFile(path.join(workbenchHome, 'secrets.json'), JSON.stringify({
-      telegram_bot_token: '123456:token',
+      telegram_bot_token: 'telegram-test-token',
     }, null, 2));
 
     const calls = [];
@@ -115,7 +115,7 @@ test('sendTelegram resolves secrets and posts the expected payload', async () =>
     });
 
     assert.equal(result.ok, true);
-    assert.match(calls[0].url, /bot123456:token\/sendMessage$/);
+    assert.match(calls[0].url, /bottelegram-test-token\/sendMessage$/);
     assert.equal(JSON.parse(calls[0].init.body).text, 'Привет, task-abc');
   } finally {
     if (previousHome === undefined) {

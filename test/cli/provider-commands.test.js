@@ -91,7 +91,7 @@ test('provider CLI commands work with the active provider', async () => {
   });
   assert.match(healthResult.stdout.toString(), /ollama: .*доступен/);
 
-  const setKeyResult = await execFileAsync(process.execPath, [CLI_PATH, 'provider', 'set-key', 'openai', 'sk-test'], {
+  const setKeyResult = await execFileAsync(process.execPath, [CLI_PATH, 'provider', 'set-key', 'openai', 'openai-test-key'], {
     cwd: root,
     env,
     maxBuffer: 1024 * 1024,
@@ -103,7 +103,7 @@ test('provider CLI commands work with the active provider', async () => {
   assert.equal(providersConfig.providers.openai.apiKey, '@secret:openai_api_key');
 
   const secrets = JSON.parse(await readFile(path.join(workbenchHome, 'secrets.json'), 'utf8'));
-  assert.equal(secrets.openai_api_key, 'sk-test');
+  assert.equal(secrets.openai_api_key, 'openai-test-key');
 
   await new Promise((resolve) => mock.server.close(resolve));
 });

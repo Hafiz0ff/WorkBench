@@ -64,7 +64,7 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   const workbenchHome = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-server-home-'));
   process.env.WORKBENCH_HOME = workbenchHome;
   const providerServer = await startProviderMockServer();
-  await setProviderApiKey(root, 'openai', 'sk-test-secret');
+  await setProviderApiKey(root, 'openai', 'provider-test-key');
   const providersConfig = await readProvidersConfig(root);
   providersConfig.providers.openai = {
     ...providersConfig.providers.openai,
@@ -168,7 +168,7 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
   const providers = await fetch(`${url}/api/v1/providers`).then((response) => response.json());
   const providerText = JSON.stringify(providers);
   assert.ok(providerText.includes('"name":"openai"'));
-  assert.ok(!providerText.includes('sk-test-secret'));
+  assert.ok(!providerText.includes('provider-test-key'));
 
   const workspaces = await fetch(`${url}/api/v1/workspaces`).then((response) => response.json());
   assert.ok(Array.isArray(workspaces.workspaces));
@@ -224,7 +224,7 @@ test('server exposes project, tasks, providers and tests APIs', async (t) => {
 
   const hooks = await fetch(`${url}/api/v1/hooks`).then((response) => response.json());
   assert.ok(Array.isArray(hooks.hooks));
-  assert.ok(!JSON.stringify(hooks).includes('sk-test-secret'));
+  assert.ok(!JSON.stringify(hooks).includes('provider-test-key'));
 
   const hookHistory = await fetch(`${url}/api/v1/hooks/history?limit=5`).then((response) => response.json());
   assert.ok(Array.isArray(hookHistory.history));

@@ -22,7 +22,7 @@ test('openai provider completes, streams, lists models and reports health', asyn
   const requests = [];
   const provider = createOpenAIProvider(
     {
-      apiKey: 'sk-test',
+      apiKey: 'provider-test-key',
       defaultModel: 'gpt-4o',
       timeout: 1000,
     },
