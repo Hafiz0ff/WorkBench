@@ -71,6 +71,11 @@ struct ContentView: View {
                 guard store.selectedProjectRoot != nil, !store.isProjectBootstrapping else { return }
                 await store.refreshSnapshot()
             }
+            .onAppear {
+                DispatchQueue.main.async {
+                    syncInspectorVisibility(isSessionRunning: store.sessionIsRunning)
+                }
+            }
             .onChange(of: store.sessionIsRunning) { _, isRunning in
                 syncInspectorVisibility(isSessionRunning: isRunning)
             }
