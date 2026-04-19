@@ -20,45 +20,41 @@ struct WorkspaceRailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: density.isCompact ? 10 : 14) {
-                GroupBox(store.localeStore.text("gui.workspace.project")) {
-                    VStack(alignment: .leading, spacing: density.isCompact ? 6 : 8) {
-                        Text(store.projectNameDisplay)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if !density.isCompact {
-                            Text(store.projectRootDisplay)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                                .truncationMode(.middle)
-                        }
-                        HStack(spacing: 8) {
-                            Label(store.currentTaskSummaryDisplay, systemImage: "checklist")
-                                .font(.caption)
-                            Spacer()
-                        }
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: density.isCompact ? 4 : 6) {
+                    Text(store.projectNameDisplay)
+                        .font(density.isCompact ? .headline : .title3.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !density.isCompact {
+                        Text(store.projectRootDisplay)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
                     }
                 }
+                .padding(.horizontal, 4)
 
-                GroupBox(store.localeStore.text("gui.workspace.navigate")) {
-                    VStack(alignment: .leading, spacing: density.isCompact ? 6 : 8) {
-                        RailNavButton(title: store.localeStore.text("gui.sidebar.project"), systemImage: "house", isSelected: store.selectedSection == .project, density: density) {
-                            store.selectedSection = .project
-                        }
-                        RailNavButton(title: store.localeStore.text("gui.sidebar.tasks"), systemImage: "checklist", isSelected: store.selectedInspectorTab == .task, density: density) {
-                            store.selectedInspectorTab = .task
-                        }
-                        RailNavButton(title: store.localeStore.text("gui.sidebar.roles"), systemImage: "person.2", isSelected: store.selectedInspectorTab == .role, density: density) {
-                            store.selectedInspectorTab = .role
-                        }
-                        RailNavButton(title: store.localeStore.text("gui.sidebar.session"), systemImage: "play.rectangle", isSelected: store.selectedInspectorTab == .logs, density: density) {
-                            store.selectedInspectorTab = .logs
-                        }
-                        RailNavButton(title: store.localeStore.text("gui.sidebar.settings"), systemImage: "gearshape", isSelected: store.selectedInspectorTab == .advanced, density: density) {
-                            store.selectedInspectorTab = .advanced
-                        }
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(height: 1)
+                    .padding(.vertical, density.isCompact ? 2 : 4)
+
+                VStack(alignment: .leading, spacing: density.isCompact ? 6 : 8) {
+                    RailNavButton(title: store.localeStore.text("gui.sidebar.project"), systemImage: "house", isSelected: store.selectedSection == .project, density: density) {
+                        store.selectedSection = .project
+                    }
+                    RailNavButton(title: store.localeStore.text("gui.sidebar.tasks"), systemImage: "checklist", isSelected: store.selectedInspectorTab == .task, density: density) {
+                        store.selectedInspectorTab = .task
+                    }
+                    RailNavButton(title: store.localeStore.text("gui.sidebar.roles"), systemImage: "person.2", isSelected: store.selectedInspectorTab == .role, density: density) {
+                        store.selectedInspectorTab = .role
+                    }
+                    RailNavButton(title: store.localeStore.text("gui.sidebar.session"), systemImage: "play.rectangle", isSelected: store.selectedInspectorTab == .logs, density: density) {
+                        store.selectedInspectorTab = .logs
+                    }
+                    RailNavButton(title: store.localeStore.text("gui.sidebar.settings"), systemImage: "gearshape", isSelected: store.selectedInspectorTab == .advanced, density: density) {
+                        store.selectedInspectorTab = .advanced
                     }
                 }
             }
