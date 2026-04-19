@@ -65,10 +65,14 @@ struct ContentView: View {
                 if store.snapshot == nil, store.selectedProjectRoot != nil, !store.isProjectBootstrapping {
                     await store.refreshSnapshot()
                 }
+                syncInspectorVisibility(isSessionRunning: store.sessionIsRunning)
             }
             .task(id: store.selectedSection) {
                 guard store.selectedProjectRoot != nil, !store.isProjectBootstrapping else { return }
                 await store.refreshSnapshot()
+            }
+            .onChange(of: store.sessionIsRunning) { _, isRunning in
+                syncInspectorVisibility(isSessionRunning: isRunning)
             }
         }
     }
@@ -78,5 +82,14 @@ struct ContentView: View {
             return "\(store.localeStore.text("gui.app.title")) · \(taskId)"
         }
         return store.localeStore.text("gui.app.title")
+    }
+
+    private func syncInspectorVisibility(isSessionRunning: Bool) {
+        if isSessionRunning {
+            columnVisibility = .all
+            store.selectedInspectorTab = .logs
+        } else {
+            columnVisibility = .doubleColumn
+        }
     }
 }

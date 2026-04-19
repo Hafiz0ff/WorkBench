@@ -1042,46 +1042,19 @@ struct PatchesView: View {
     var body: some View {
         SectionShell(title: store.localeStore.text("gui.patch.title")) {
             VStack(alignment: .leading, spacing: 14) {
-                StatusRibbon(items: [
-                    .init(label: store.localeStore.text("gui.patch.status"), value: store.currentPatchStatusDisplay, tint: store.hasPendingPatch ? .red : .green, symbol: "doc.on.doc"),
-                    .init(label: store.localeStore.text("gui.patch.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield"),
-                    .init(label: store.localeStore.text("gui.patch.validation"), value: store.snapshot?.pendingPatch?.validationStatus ?? store.localeStore.text("gui.common.notSet"), tint: .teal, symbol: "checkmark.seal"),
-                ])
+                if hasPatch {
+                    StatusRibbon(items: [
+                        .init(label: store.localeStore.text("gui.patch.status"), value: store.currentPatchStatusDisplay, tint: store.hasPendingPatch ? .red : .green, symbol: "doc.on.doc"),
+                        .init(label: store.localeStore.text("gui.patch.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield"),
+                        .init(label: store.localeStore.text("gui.patch.validation"), value: store.snapshot?.pendingPatch?.validationStatus ?? store.localeStore.text("gui.common.notSet"), tint: .teal, symbol: "checkmark.seal"),
+                    ])
 
-                keyValueRow(store.localeStore.text("gui.patch.status"), store.currentPatchStatusDisplay)
-                keyValueRow(store.localeStore.text("gui.patch.summary"), store.pendingPatchSummaryDisplay)
-                keyValueRow(store.localeStore.text("gui.patch.approvalMode"), store.approvalModeDisplay)
-                keyValueRow(store.localeStore.text("gui.patch.validation"), store.snapshot?.pendingPatch?.validationStatus ?? store.localeStore.text("gui.common.notSet"))
+                    keyValueRow(store.localeStore.text("gui.patch.status"), store.currentPatchStatusDisplay)
+                    keyValueRow(store.localeStore.text("gui.patch.summary"), store.pendingPatchSummaryDisplay)
+                    keyValueRow(store.localeStore.text("gui.patch.approvalMode"), store.approvalModeDisplay)
+                    keyValueRow(store.localeStore.text("gui.patch.validation"), store.snapshot?.pendingPatch?.validationStatus ?? store.localeStore.text("gui.common.notSet"))
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
-                        Button {
-                            Task { await store.inspectDiff() }
-                        } label: {
-                            Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
-                        }
-                        .buttonStyle(.intent(.secondary))
-                        Button {
-                            Task { await store.patchStatus() }
-                        } label: {
-                            Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .buttonStyle(.intent(.secondary))
-                        Button {
-                            Task { await store.applyPatch() }
-                        } label: {
-                            Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
-                        }
-                        .buttonStyle(.intent(.primary))
-                        Button {
-                            Task { await store.rejectPatch() }
-                        } label: {
-                            Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
-                        }
-                        .buttonStyle(.intent(.danger))
-                        Spacer()
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
+                    ViewThatFits(in: .horizontal) {
                         HStack(spacing: 12) {
                             Button {
                                 Task { await store.inspectDiff() }
@@ -1095,8 +1068,6 @@ struct PatchesView: View {
                                 Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
                             }
                             .buttonStyle(.intent(.secondary))
-                        }
-                        HStack(spacing: 12) {
                             Button {
                                 Task { await store.applyPatch() }
                             } label: {
@@ -1109,6 +1080,37 @@ struct PatchesView: View {
                                 Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
                             }
                             .buttonStyle(.intent(.danger))
+                            Spacer()
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                Button {
+                                    Task { await store.inspectDiff() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.patch.inspectDiff"), systemImage: "doc.plaintext")
+                                }
+                                .buttonStyle(.intent(.secondary))
+                                Button {
+                                    Task { await store.patchStatus() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.patch.statusButton"), systemImage: "arrow.triangle.2.circlepath")
+                                }
+                                .buttonStyle(.intent(.secondary))
+                            }
+                            HStack(spacing: 12) {
+                                Button {
+                                    Task { await store.applyPatch() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.patch.apply"), systemImage: "checkmark.circle")
+                                }
+                                .buttonStyle(.intent(.primary))
+                                Button {
+                                    Task { await store.rejectPatch() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.patch.reject"), systemImage: "xmark.circle")
+                                }
+                                .buttonStyle(.intent(.danger))
+                            }
                         }
                     }
                 }
@@ -1140,6 +1142,16 @@ struct PatchesView: View {
             }
         }
         .animation(IntentMotion.selection, value: store.sessionIsRunning)
+    }
+
+    private var hasPatch: Bool {
+        if store.hasPendingPatch {
+            return true
+        }
+        guard let diff = store.snapshot?.pendingPatch?.diffText?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !diff.isEmpty
     }
 }
 
@@ -1205,14 +1217,6 @@ struct SessionView: View {
     var body: some View {
         SectionShell(title: store.localeStore.text("gui.session.title")) {
             VStack(alignment: .leading, spacing: 14) {
-                StatusRibbon(items: [
-                    .init(label: store.localeStore.text("gui.session.model"), value: store.currentModelDisplay, tint: .teal, symbol: "cpu"),
-                    .init(label: store.localeStore.text("gui.session.role"), value: store.currentRoleDisplay, tint: .blue, symbol: "person.fill"),
-                    .init(label: store.localeStore.text("gui.session.task"), value: store.currentTaskSummaryDisplay, tint: .orange, symbol: "checkmark.circle"),
-                    .init(label: store.localeStore.text("gui.session.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield.checkered"),
-                    .init(label: store.localeStore.text("gui.session.status"), value: store.sessionStatusDisplay, tint: store.sessionIsRunning ? .green : .secondary, symbol: store.sessionIsRunning ? "play.fill" : "pause.fill"),
-                ])
-
                 TextField(store.localeStore.text("gui.session.inputPlaceholder"), text: $store.sessionInput)
                     .textFieldStyle(.roundedBorder)
 
@@ -1238,8 +1242,6 @@ struct SessionView: View {
                         }
                         .buttonStyle(.intent(.danger))
                         Spacer()
-                        Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
-                            .foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 12) {
@@ -1264,32 +1266,7 @@ struct SessionView: View {
                                 Label(store.localeStore.text("gui.session.stop"), systemImage: "stop.circle")
                             }
                             .buttonStyle(.intent(.danger))
-                            Text(store.sessionProcessStatus.isEmpty ? store.localeStore.text("gui.session.idle") : store.sessionProcessStatus)
-                                .foregroundStyle(.secondary)
                         }
-                    }
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 12)], spacing: 12) {
-                    Button {
-                        Task { await store.inspectPrompt() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.inspectPrompt"), systemImage: "wand.and.stars")
-                    }
-                    Button {
-                        Task { await store.inspectDiff() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.inspectDiff"), systemImage: "doc.plaintext")
-                    }
-                    Button {
-                        Task { await store.applyPatch() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.applyPatch"), systemImage: "checkmark.circle")
-                    }
-                    Button {
-                        Task { await store.rejectPatch() }
-                    } label: {
-                        Label(store.localeStore.text("gui.session.rejectPatch"), systemImage: "xmark.circle")
                     }
                 }
 
@@ -1298,12 +1275,7 @@ struct SessionView: View {
                         EmptyStateView(
                             title: store.localeStore.text("gui.session.empty"),
                             message: store.localeStore.text("gui.session.emptyHint"),
-                            systemImage: "terminal",
-                            primaryActionTitle: store.localeStore.text("gui.session.start"),
-                            primaryAction: {
-                                let request = store.sessionInput
-                                Task { await store.startSession(with: request) }
-                            }
+                            systemImage: "terminal"
                         )
                     } else {
                         ScrollView {
