@@ -713,49 +713,7 @@ function emptyState(title, text, action = '') {
 }
 
 function renderOverview() {
-  const cards = [
-    ['Проект', state.project?.name || '—', state.project?.root || ''],
-    ['Провайдер', state.project?.provider || '—', state.project?.model || ''],
-    ['Текущая задача', state.project?.task?.title || 'не задана', state.project?.currentTaskId || ''],
-  ];
-  return sectionWrapper(
-    'Обзор',
-    'Быстрый срез состояния проекта, задач, провайдеров и тестов.',
-    buttonMarkup('Обновить всё', 'refresh-all', '', 'primary'),
-    `
-      ${renderComposerCard()}
-      <div class="grid cards">
-        ${cards.map(([label, value, sub]) => metricCard(label, value, sub)).join('')}
-      </div>
-      <div class="grid two-up">
-        <div class="card">
-          <div class="card-header"><h2 class="card-title">Состояние проекта</h2></div>
-          <div class="card-body markdown">
-            ${renderMarkdown(state.memory?.overview || 'Память проекта пока не загружена.')}
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><h2 class="card-title">Последние тесты</h2></div>
-          <div class="card-body">
-            ${renderSparkline(state.testsHistory)}
-            <div class="list" style="margin-top: 14px;">
-              ${(state.testsHistory.slice(0, 5).map((run) => `
-                <div class="list-item">
-                  <div class="list-main">
-                    <div class="list-title">${escapeHtml(run.runId)}</div>
-                    <div class="list-subtitle">${escapeHtml(formatDate(run.startedAt))} · ${escapeHtml(run.command || '—')}</div>
-                  </div>
-                  <div class="list-meta">
-                    <span class="tiny-badge ${classForStatus(run.status)}">${escapeHtml(statusLabel(run.status))}</span>
-                  </div>
-                </div>
-              `).join('') || `<div class="footer-note">Тестов пока нет.</div>`)}
-            </div>
-          </div>
-        </div>
-      </div>
-    `,
-  );
+  return `<div class="overview-focus">${renderComposerCard()}</div>`;
 }
 
 function renderTasks() {
