@@ -4,12 +4,17 @@ struct ProjectView: View {
     @EnvironmentObject private var store: WorkspaceStore
     @State private var composerFocused = false
     @State private var composerAutofocusTask: Task<Void, Never>?
+    let compact: Bool
+
+    init(compact: Bool = false) {
+        self.compact = compact
+    }
 
     var body: some View {
-        SectionShell(title: store.localeStore.text("gui.project.title")) {
-            VStack(alignment: .leading, spacing: 14) {
+        SectionShell(title: store.localeStore.text("gui.project.title"), compact: compact) {
+            VStack(alignment: .leading, spacing: compact ? 10 : 14) {
                 if let root = store.selectedProjectRoot {
-                    if store.projectLaunchBannerVisible, !store.projectLaunchMessages.isEmpty {
+                    if !compact, store.projectLaunchBannerVisible, !store.projectLaunchMessages.isEmpty {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "checkmark.seal.fill")
                                 .foregroundStyle(.green)
@@ -32,157 +37,152 @@ struct ProjectView: View {
                             .foregroundStyle(.secondary)
                         }
                         .padding(12)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .glassSurface(
+                            cornerRadius: 14,
+                            material: .ultraThinMaterial,
+                            tint: Color.primary.opacity(0.02),
+                            border: Color.primary.opacity(0.10),
+                            shadowRadius: 8
+                        )
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .animation(IntentMotion.reveal, value: store.projectLaunchBannerVisible)
                     }
 
-                    GroupBox(store.localeStore.text("gui.project.composerTitle")) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: compact ? 10 : 12) {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "folder.fill")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(store.projectNameDisplay)
-                                    .font(.title3.weight(.semibold))
+                                    .font(.headline)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                                 Text(root.path)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+                                    .lineLimit(1)
                                     .truncationMode(.middle)
                             }
-
-                            ZStack(alignment: .topLeading) {
-                                ProjectComposerTextView(
-                                    text: $store.projectComposerText,
-                                    isFocused: composerFocused,
-                                    onSubmit: {
-                                        Task { await store.startProjectTask() }
-                                    }
-                                )
-                                    .frame(minHeight: 132)
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
-                                if store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(store.localeStore.text("gui.project.composerPlaceholder"))
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 12)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-
-                            Text(store.localeStore.text("gui.project.composerHint"))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-
-                            ViewThatFits(in: .horizontal) {
-                                HStack {
-                                    Button {
-                                        Task { await store.startProjectTask() }
-                                    } label: {
-                                        Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
-                                    }
-                                    .buttonStyle(.intent(.primary))
-                                    .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                    Spacer(minLength: 12)
-                                    Text(store.localeStore.text("gui.project.readyHint"))
-                                        .foregroundStyle(.secondary)
-                                    Text(store.localeStore.text("gui.project.shortcutHint"))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button {
-                                        Task { await store.startProjectTask() }
-                                    } label: {
-                                        Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
-                                    }
-                                    .buttonStyle(.intent(.primary))
-                                    .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                    Text(store.localeStore.text("gui.project.readyHint"))
-                                        .foregroundStyle(.secondary)
-                                    Text(store.localeStore.text("gui.project.shortcutHint"))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text(store.currentTaskSummaryDisplay)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(store.currentRoleDisplay)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                             }
                         }
-                    }
+                        .padding(10)
+                        .glassSurface(
+                            cornerRadius: 14,
+                            material: .ultraThinMaterial,
+                            tint: Color.primary.opacity(0.015),
+                            border: Color.primary.opacity(0.08),
+                            shadowRadius: 6
+                        )
 
-                    GroupBox(store.localeStore.text("gui.project.quickActions")) {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 10)], spacing: 10) {
-                            QuickActionButton(title: store.localeStore.text("gui.project.quickStructure")) {
-                                store.projectComposerText = store.localeStore.text("gui.project.quickStructurePrompt")
-                            }
-                            QuickActionButton(title: store.localeStore.text("gui.project.quickEntryPoint")) {
-                                store.projectComposerText = store.localeStore.text("gui.project.quickEntryPointPrompt")
-                            }
-                            QuickActionButton(title: store.localeStore.text("gui.project.quickPlan")) {
-                                store.projectComposerText = store.localeStore.text("gui.project.quickPlanPrompt")
-                            }
-                            QuickActionButton(title: store.localeStore.text("gui.project.quickPatch")) {
-                                Task { await store.patchStatus() }
-                            }
-                            QuickActionButton(title: store.localeStore.text("gui.project.quickContext")) {
-                                store.projectComposerText = store.localeStore.text("gui.project.quickContextPrompt")
+                        ZStack(alignment: .topLeading) {
+                            ProjectComposerTextView(
+                                text: $store.projectComposerText,
+                                isFocused: composerFocused,
+                                onSubmit: {
+                                    Task { await store.startProjectTask() }
+                                }
+                            )
+                            .frame(minHeight: compact ? 116 : 130)
+                            .glassSurface(
+                                cornerRadius: 8,
+                                material: .ultraThinMaterial,
+                                tint: Color.primary.opacity(0.01),
+                                border: Color.primary.opacity(0.10),
+                                shadowRadius: 0,
+                                shadowY: 0
+                            )
+                            if store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(store.localeStore.text("gui.project.composerPlaceholder"))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 12)
+                                    .allowsHitTesting(false)
                             }
                         }
-                    }
-
-                    StatusRibbon(items: [
-                        .init(label: store.localeStore.text("gui.project.currentRole"), value: store.currentRoleDisplay, tint: .blue, symbol: "person.fill"),
-                        .init(label: store.localeStore.text("gui.project.currentModel"), value: store.currentModelDisplay, tint: .teal, symbol: "cpu.fill"),
-                        .init(label: store.localeStore.text("gui.project.currentTask"), value: store.currentTaskSummaryDisplay, tint: .orange, symbol: "checklist"),
-                        .init(label: store.localeStore.text("gui.project.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield.checkered"),
-                        .init(label: store.localeStore.text("gui.project.currentPatch"), value: store.currentPatchStatusDisplay, tint: store.hasPendingPatch ? .red : .secondary, symbol: "doc.on.doc"),
-                    ])
-
-                    keyValueRow(store.localeStore.text("gui.project.root"), store.projectRootDisplay)
-                    keyValueRow(store.localeStore.text("gui.project.engineRoot"), store.engineRootDisplay)
-                    keyValueRow(store.localeStore.text("gui.project.memory"), store.snapshot?.memoryExists == true ? store.localeStore.text("gui.common.yes") : store.localeStore.text("gui.common.no"))
-
-                    ViewThatFits(in: .horizontal) {
-                        HStack {
-                            Button {
-                                store.chooseProjectFolder()
-                            } label: {
-                                Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
-                            }
-                            Button {
-                                Task { await store.initializeWorkspace() }
-                            } label: {
-                                Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
-                            }
-                            Button {
-                                Task { await store.refreshWorkspace() }
-                            } label: {
-                                Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
-                            }
-                            Spacer(minLength: 12)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            composerFocused = true
+                            store.requestProjectComposerFocus()
                         }
-                        VStack(alignment: .leading, spacing: 8) {
-                            Button {
-                                store.chooseProjectFolder()
-                            } label: {
-                                Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
-                            }
-                            HStack(spacing: 12) {
+
+                        StatusRibbon(items: [
+                            .init(label: store.localeStore.text("gui.project.currentTask"), value: store.currentTaskSummaryDisplay, tint: .orange, symbol: "checklist"),
+                            .init(label: store.localeStore.text("gui.project.currentRole"), value: store.currentRoleDisplay, tint: .blue, symbol: "person.fill"),
+                            .init(label: store.localeStore.text("gui.project.currentModel"), value: store.currentModelDisplay, tint: .teal, symbol: "cpu.fill"),
+                            .init(label: store.localeStore.text("gui.project.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield.checkered"),
+                        ])
+
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .center, spacing: 8) {
                                 Button {
-                                    Task { await store.initializeWorkspace() }
+                                    Task { await store.startProjectTask() }
                                 } label: {
-                                    Label(store.localeStore.text("gui.project.init"), systemImage: "plus.circle")
+                                    Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
                                 }
+                                .buttonStyle(.intent(.primary))
+                                .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                Button {
+                                    store.chooseProjectFolder()
+                                } label: {
+                                    Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                                }
+                                .buttonStyle(.intent(.text))
+
                                 Button {
                                     Task { await store.refreshWorkspace() }
                                 } label: {
                                     Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
                                 }
+                                .buttonStyle(.intent(.text))
+
+                                Spacer(minLength: 12)
+                                Text(store.localeStore.text("gui.project.readyHint"))
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    Task { await store.startProjectTask() }
+                                } label: {
+                                    Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
+                                }
+                                .buttonStyle(.intent(.primary))
+                                .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        store.chooseProjectFolder()
+                                    } label: {
+                                        Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
+                                    }
+                                    .buttonStyle(.intent(.text))
+
+                                    Button {
+                                        Task { await store.refreshWorkspace() }
+                                    } label: {
+                                        Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
+                                    }
+                                    .buttonStyle(.intent(.text))
+                                }
+
+                                Text(store.localeStore.text("gui.project.readyHint"))
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                    }
-
-                    if let state = store.snapshot?.state {
-                        Text("\(store.localeStore.text("gui.project.lastRefresh")): \(state.lastRefreshAt ?? store.localeStore.text("gui.common.notSet"))")
-                            .foregroundStyle(.secondary)
                     }
                 } else {
                     EmptyStateView(
@@ -267,101 +267,60 @@ struct TasksView: View {
     var body: some View {
         SectionShell(title: store.localeStore.text("gui.tasks.title")) {
             VStack(alignment: .leading, spacing: 14) {
-                GroupBox(store.localeStore.text("gui.tasks.create")) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        TextField(store.localeStore.text("gui.tasks.titlePlaceholder"), text: $store.taskTitle)
-                        TextField(store.localeStore.text("gui.tasks.requestPlaceholder"), text: $store.taskRequest, axis: .vertical)
-                            .lineLimit(4, reservesSpace: true)
-                        ViewThatFits(in: .horizontal) {
-                            HStack {
-                                Button {
-                                    Task { await store.createTask() }
-                                } label: {
-                                    Label(store.localeStore.text("gui.tasks.createButton"), systemImage: "plus")
-                                }
-                                Spacer(minLength: 12)
-                                Text(store.localeStore.text("gui.tasks.createHint"))
-                                    .foregroundStyle(.secondary)
-                            }
-                            VStack(alignment: .leading, spacing: 8) {
-                                Button {
-                                    Task { await store.createTask() }
-                                } label: {
-                                    Label(store.localeStore.text("gui.tasks.createButton"), systemImage: "plus")
-                                }
-                                Text(store.localeStore.text("gui.tasks.createHint"))
-                                    .foregroundStyle(.secondary)
-                            }
+                if store.snapshot?.tasks.isEmpty ?? true {
+                    EmptyStateView(
+                        title: store.localeStore.text("gui.tasks.empty"),
+                        message: store.localeStore.text("gui.tasks.emptyHint"),
+                        systemImage: "list.bullet.rectangle",
+                        primaryActionTitle: store.localeStore.text("gui.sidebar.project"),
+                        primaryAction: {
+                            store.selectedSection = .project
+                            store.requestProjectComposerFocus()
                         }
-                        .disabled(store.taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
+                    )
                 }
 
                 GroupBox(store.localeStore.text("gui.tasks.list")) {
                     if let tasks = store.snapshot?.tasks, !tasks.isEmpty {
-                        List(tasks, id: \.id) { task in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(task.title)
-                                        .font(.headline)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                    Spacer()
-                                    if task.id == store.snapshot?.state?.currentTaskId {
-                                        Text(store.localeStore.text("gui.tasks.currentBadge"))
-                                            .font(.caption)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(.quaternary)
-                                            .clipShape(Capsule())
+                        if let message = store.taskActionMessage {
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark.seal")
+                                Text(message)
+                            }
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.bottom, 4)
+                        }
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(tasks) { task in
+                                TaskCardView(
+                                    task: task,
+                                    isSelected: task.id == store.selectedTaskId || task.id == store.snapshot?.state?.currentTaskId,
+                                    onUse: {
+                                        Task { await store.useTask(task.id) }
+                                    },
+                                    onArchive: {
+                                        Task { await store.archiveTask(task.id) }
                                     }
-                                }
-                                Text(task.id)
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Text("\(store.localeStore.text("gui.task.status")): \(task.status)")
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                Text("\(store.localeStore.text("gui.task.role")): \(task.role ?? store.localeStore.text("gui.common.notSet"))")
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                Text("\(store.localeStore.text("gui.task.model")): \(task.model ?? store.localeStore.text("gui.common.notSet"))")
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                Text("\(store.localeStore.text("gui.task.summary")): \(task.summary ?? store.localeStore.text("gui.common.notSet"))")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                                    .truncationMode(.tail)
-                                ViewThatFits(in: .horizontal) {
-                                    HStack(spacing: 12) {
-                                        Button(store.localeStore.text("gui.tasks.use")) {
-                                            Task { await store.useTask(task.id) }
-                                        }
-                                        .buttonStyle(.intent(.secondary))
-                                        Button(store.localeStore.text("gui.tasks.archive")) {
-                                            Task { await store.archiveTask(task.id) }
-                                        }
-                                        .buttonStyle(.intent(.danger))
-                                        Spacer()
-                                    }
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Button(store.localeStore.text("gui.tasks.use")) {
-                                            Task { await store.useTask(task.id) }
-                                        }
-                                        .buttonStyle(.intent(.secondary))
-                                        Button(store.localeStore.text("gui.tasks.archive")) {
-                                            Task { await store.archiveTask(task.id) }
-                                        }
-                                        .buttonStyle(.intent(.danger))
+                                )
+                            }
+                        }
+                        if let selectedTask = selectedTaskSnapshot {
+                            GroupBox(store.localeStore.text("gui.tasks.details")) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    keyValueRow(store.localeStore.text("gui.tasks.name"), selectedTask.title)
+                                    keyValueRow(store.localeStore.text("gui.task.status"), selectedTask.status)
+                                    keyValueRow(store.localeStore.text("gui.task.role"), selectedTask.role ?? store.localeStore.text("gui.common.notSet"))
+                                    keyValueRow(store.localeStore.text("gui.task.model"), selectedTask.model ?? store.localeStore.text("gui.common.notSet"))
+                                    keyValueRow(store.localeStore.text("gui.task.summary"), selectedTask.summary ?? store.localeStore.text("gui.common.notSet"))
+                                    keyValueRow(store.localeStore.text("gui.tasks.request"), selectedTask.userRequest ?? store.localeStore.text("gui.common.notSet"))
+                                    keyValueRow(store.localeStore.text("gui.tasks.files"), selectedTask.relevantFiles?.joined(separator: ", ") ?? store.localeStore.text("gui.common.notSet"))
+                                    if let notes = selectedTask.lastRunNotes, !notes.isEmpty {
+                                        keyValueRow(store.localeStore.text("gui.tasks.notes"), "\(notes.count)")
                                     }
                                 }
                             }
-                            .padding(.vertical, 6)
                         }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     } else {
                         EmptyStateView(
                             title: store.localeStore.text("gui.tasks.empty"),
@@ -376,6 +335,89 @@ struct TasksView: View {
         }
         .animation(IntentMotion.selection, value: store.selectedTaskId)
     }
+
+    private var selectedTaskSnapshot: TaskIndexEntry? {
+        let tasks = store.snapshot?.tasks ?? []
+        if let selectedId = store.selectedTaskId {
+            return tasks.first(where: { $0.id == selectedId })
+        }
+        return tasks.first(where: { $0.id == store.snapshot?.state?.currentTaskId }) ?? tasks.first
+    }
+}
+
+private struct TaskCardView: View {
+    @EnvironmentObject private var store: WorkspaceStore
+    let task: TaskIndexEntry
+    let isSelected: Bool
+    let onUse: () -> Void
+    let onArchive: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(task.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(task.id)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer()
+                if isSelected {
+                    Text(store.localeStore.text("gui.tasks.currentBadge"))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .glassSurface(
+                            cornerRadius: 999,
+                            material: .ultraThinMaterial,
+                            tint: Color.accentColor.opacity(0.04),
+                            border: Color.accentColor.opacity(0.22),
+                            borderWidth: 0.9,
+                            shadowColor: .clear,
+                            shadowRadius: 0,
+                            shadowY: 0
+                        )
+                        .clipShape(Capsule())
+                }
+            }
+
+            keyValueRow(store.localeStore.text("gui.task.status"), task.status)
+            keyValueRow(store.localeStore.text("gui.task.role"), task.role ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.task.model"), task.model ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.task.summary"), task.summary ?? store.localeStore.text("gui.common.notSet"))
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Button(store.localeStore.text("gui.tasks.use"), action: onUse)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.tasks.archive"), action: onArchive)
+                        .buttonStyle(.intent(.danger))
+                    Spacer()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(store.localeStore.text("gui.tasks.use"), action: onUse)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.tasks.archive"), action: onArchive)
+                        .buttonStyle(.intent(.danger))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .glassSurface(
+            cornerRadius: 14,
+            material: .ultraThinMaterial,
+            tint: isSelected ? Color.accentColor.opacity(0.05) : Color.primary.opacity(0.015),
+            border: isSelected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.10),
+            shadowRadius: 8
+        )
+    }
 }
 
 struct RolesView: View {
@@ -387,22 +429,12 @@ struct RolesView: View {
             VStack(alignment: .leading, spacing: 14) {
                 ViewThatFits(in: .horizontal) {
                     HStack {
-                        Button {
-                            Task { await store.scaffoldRoles() }
-                        } label: {
-                            Label(store.localeStore.text("gui.roles.scaffold"), systemImage: "square.grid.2x2")
-                        }
                         Spacer(minLength: 12)
                         TextField(store.localeStore.text("gui.roles.filterPlaceholder"), text: $filterText)
                             .textFieldStyle(.roundedBorder)
                             .frame(minWidth: 180, idealWidth: 220, maxWidth: 280, alignment: .trailing)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Button {
-                            Task { await store.scaffoldRoles() }
-                        } label: {
-                            Label(store.localeStore.text("gui.roles.scaffold"), systemImage: "square.grid.2x2")
-                        }
                         TextField(store.localeStore.text("gui.roles.filterPlaceholder"), text: $filterText)
                             .textFieldStyle(.roundedBorder)
                     }
@@ -417,7 +449,13 @@ struct RolesView: View {
                     .foregroundStyle(store.roleCount > 0 ? .green : .orange)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .glassSurface(
+                        cornerRadius: 12,
+                        material: .ultraThinMaterial,
+                        tint: Color.primary.opacity(0.02),
+                        border: Color.primary.opacity(0.10),
+                        shadowRadius: 6
+                    )
                 }
 
                 let roles = store.snapshot?.roles ?? []
@@ -428,44 +466,16 @@ struct RolesView: View {
                 if !visibleRoles.isEmpty {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(visibleRoles) { role in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(role.name)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(role.description)
-                                    .foregroundStyle(.secondary)
-                                    .font(.subheadline)
-                                    .lineLimit(2)
-                                    .truncationMode(.tail)
-                                ViewThatFits(in: .horizontal) {
-                                    HStack(spacing: 12) {
-                                        Button(store.localeStore.text("gui.roles.use")) {
-                                            Task { await store.useRole(role.name) }
-                                        }
-                                        .buttonStyle(.intent(.secondary))
-                                        Button(store.localeStore.text("gui.roles.inspect")) {
-                                            Task { await store.inspectRole(role.name) }
-                                        }
-                                        .buttonStyle(.intent(.text))
-                                        Spacer()
-                                    }
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Button(store.localeStore.text("gui.roles.use")) {
-                                            Task { await store.useRole(role.name) }
-                                        }
-                                        .buttonStyle(.intent(.secondary))
-                                        Button(store.localeStore.text("gui.roles.inspect")) {
-                                            Task { await store.inspectRole(role.name) }
-                                        }
-                                        .buttonStyle(.intent(.text))
-                                    }
+                            RoleCardView(
+                                role: role,
+                                isSelected: role.name == store.selectedRoleName,
+                                onActivate: {
+                                    Task { await store.useRole(role.name) }
+                                },
+                                onInspect: {
+                                    Task { await store.inspectRole(role.name) }
                                 }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(.quaternary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.quaternary.opacity(0.7)))
+                            )
                         }
                     }
                 } else {
@@ -473,13 +483,109 @@ struct RolesView: View {
                         title: store.localeStore.text("gui.roles.empty"),
                         message: store.localeStore.text("gui.roles.emptyHint"),
                         systemImage: "person.2",
-                        primaryActionTitle: store.localeStore.text("gui.roles.scaffold"),
-                        primaryAction: { Task { await store.scaffoldRoles() } }
+                        primaryActionTitle: nil,
+                        primaryAction: nil
                     )
+                }
+
+                if let selectedRole = selectedRoleSnapshot {
+                    GroupBox(store.localeStore.text("gui.roles.details")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            keyValueRow(store.localeStore.text("gui.roles.name"), selectedRole.name)
+                            keyValueRow(store.localeStore.text("gui.roles.file"), selectedRole.fileURL.path)
+                            keyValueRow(store.localeStore.text("gui.roles.description"), selectedRole.description)
+                            TextEditor(text: .constant(selectedRole.rawContent))
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 220)
+                                .glassSurface(
+                                    cornerRadius: 8,
+                                    material: .ultraThinMaterial,
+                                    tint: Color.primary.opacity(0.01),
+                                    border: Color.primary.opacity(0.10),
+                                    shadowRadius: 0,
+                                    shadowY: 0
+                                )
+                                .disabled(true)
+                        }
+                    }
                 }
             }
         }
         .animation(IntentMotion.selection, value: store.selectedRoleName)
+    }
+
+    private var selectedRoleSnapshot: RoleFileSnapshot? {
+        let roles = store.snapshot?.roles ?? []
+        if let selectedName = store.selectedRoleName {
+            return roles.first(where: { $0.name == selectedName })
+        }
+        return roles.first(where: { $0.name == store.snapshot?.state?.activeRole }) ?? roles.first
+    }
+}
+
+private struct RoleCardView: View {
+    @EnvironmentObject private var store: WorkspaceStore
+    let role: RoleFileSnapshot
+    let isSelected: Bool
+    let onActivate: () -> Void
+    let onInspect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(role.name)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(role.description)
+                .foregroundStyle(.secondary)
+                .font(.subheadline)
+                .lineLimit(2)
+                .truncationMode(.tail)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Button(store.localeStore.text("gui.roles.use"), action: onActivate)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.roles.inspect"), action: onInspect)
+                        .buttonStyle(.intent(.text))
+                    Spacer()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(store.localeStore.text("gui.roles.use"), action: onActivate)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.roles.inspect"), action: onInspect)
+                        .buttonStyle(.intent(.text))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .glassSurface(
+            cornerRadius: 14,
+            material: .ultraThinMaterial,
+            tint: isSelected ? Color.accentColor.opacity(0.05) : Color.primary.opacity(0.015),
+            border: isSelected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.10),
+            shadowRadius: 8
+        )
+        .overlay(alignment: .topTrailing) {
+            if isSelected {
+                Text(store.localeStore.text("gui.roles.selectedBadge"))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .glassSurface(
+                        cornerRadius: 999,
+                        material: .ultraThinMaterial,
+                        tint: Color.accentColor.opacity(0.04),
+                        border: Color.accentColor.opacity(0.22),
+                        borderWidth: 0.9,
+                        shadowColor: .clear,
+                        shadowRadius: 0,
+                        shadowY: 0
+                    )
+                    .padding(8)
+            }
+        }
     }
 }
 
@@ -557,90 +663,30 @@ struct ExtensionsView: View {
                     }
 
                 if !visibleExtensions.isEmpty {
-                    List(visibleExtensions, id: \.id) { entry in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Button {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(visibleExtensions, id: \.id) { entry in
+                            ExtensionCardView(
+                                entry: entry,
+                                isSelected: entry.id == store.selectedExtensionId,
+                                onInspect: {
                                     Task { await store.inspectExtension(entry.id) }
-                                } label: {
-                                    Text(entry.name ?? entry.id)
-                                        .font(.headline)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                }
-                                .buttonStyle(.intent(.text))
-                                Spacer()
-                                Text(entry.enabled == true ? store.localeStore.text("gui.extensions.statusEnabled") : store.localeStore.text("gui.extensions.statusDisabled"))
-                                    .font(.caption)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(entry.enabled == true ? Color.green.opacity(0.15) : Color.secondary.opacity(0.12))
-                                    .clipShape(Capsule())
-                            }
-                            Text(entry.id)
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text("\(store.localeStore.text("gui.extensions.type")): \(entry.type ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.extensions.source")): \(extensionSourceLabel(entry))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.extensions.trust")): \(entry.reviewStatus ?? entry.trustLevel ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.extensions.installSourceType")): \(entry.installSourceType ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.extensions.capabilities")): \(entry.capabilities?.joined(separator: ", ") ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 12) {
-                                    Button(store.localeStore.text("gui.extensions.enable")) {
-                                        Task { await store.enableExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.secondary))
-                                    Button(store.localeStore.text("gui.extensions.disable")) {
-                                        Task { await store.disableExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.danger))
-                                    Button(store.localeStore.text("gui.extensions.update")) {
-                                        Task { await store.updateExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.secondary))
-                                    Button(store.localeStore.text("gui.extensions.remove")) {
-                                        Task { await store.removeExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.danger))
-                                    Spacer()
-                                }
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button(store.localeStore.text("gui.extensions.enable")) {
-                                        Task { await store.enableExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.secondary))
-                                    Button(store.localeStore.text("gui.extensions.disable")) {
-                                        Task { await store.disableExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.danger))
-                                    Button(store.localeStore.text("gui.extensions.update")) {
-                                        Task { await store.updateExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.secondary))
-                                    Button(store.localeStore.text("gui.extensions.remove")) {
-                                        Task { await store.removeExtension(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.danger))
-                                }
-                            }
+                                },
+                                onEnable: {
+                                    Task { await store.enableExtension(entry.id) }
+                                },
+                                onDisable: {
+                                    Task { await store.disableExtension(entry.id) }
+                                },
+                                onUpdate: {
+                                    Task { await store.updateExtension(entry.id) }
+                                },
+                                onRemove: {
+                                    Task { await store.removeExtension(entry.id) }
+                                },
+                                sourceLabel: extensionSourceLabel(entry)
+                            )
                         }
-                        .padding(.vertical, 6)
                     }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.extensions.empty"),
@@ -742,71 +788,22 @@ struct RegistryView: View {
                     }
 
                 if !visibleEntries.isEmpty {
-                    List(visibleEntries, id: \.id) { entry in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Button {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(visibleEntries, id: \.id) { entry in
+                            RegistryCardView(
+                                entry: entry,
+                                isSelected: entry.id == store.selectedRegistryId,
+                                onInspect: {
                                     Task { await store.inspectRegistryEntry(entry.id) }
-                                } label: {
-                                    Text(entry.name ?? entry.id)
-                                        .font(.headline)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                }
-                                .buttonStyle(.intent(.text))
-                                Spacer()
-                                Text(registryTrustLabel(entry))
-                                    .font(.caption)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(registryTrustColor(entry).opacity(0.15))
-                                    .clipShape(Capsule())
-                            }
-                            Text(entry.id)
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text("\(store.localeStore.text("gui.registry.publisher")): \(entry.publisher ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.registry.reviewStatus")): \(entry.reviewStatus ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.registry.source")): \(entry.registrySourceLabel ?? entry.registrySourceLocation ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            Text("\(store.localeStore.text("gui.registry.capabilities")): \(entry.capabilities?.joined(separator: ", ") ?? store.localeStore.text("gui.common.notSet"))")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 12) {
-                                    Button(store.localeStore.text("gui.registry.install")) {
-                                        Task { await store.installRegistryEntry(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.primary))
-                                    Button(store.localeStore.text("gui.registry.inspect")) {
-                                        Task { await store.inspectRegistryEntry(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.text))
-                                    Spacer()
-                                }
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button(store.localeStore.text("gui.registry.install")) {
-                                        Task { await store.installRegistryEntry(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.primary))
-                                    Button(store.localeStore.text("gui.registry.inspect")) {
-                                        Task { await store.inspectRegistryEntry(entry.id) }
-                                    }
-                                    .buttonStyle(.intent(.text))
-                                }
-                            }
+                                },
+                                onInstall: {
+                                    Task { await store.installRegistryEntry(entry.id) }
+                                },
+                                trustLabel: registryTrustLabel(entry),
+                                trustTint: registryTrustColor(entry)
+                            )
                         }
-                        .padding(.vertical, 6)
                     }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.registry.empty"),
@@ -872,6 +869,207 @@ struct RegistryView: View {
     }
 }
 
+private struct ExtensionCardView: View {
+    @EnvironmentObject private var store: WorkspaceStore
+    let entry: ExtensionRegistryEntry
+    let isSelected: Bool
+    let onInspect: () -> Void
+    let onEnable: () -> Void
+    let onDisable: () -> Void
+    let onUpdate: () -> Void
+    let onRemove: () -> Void
+    let sourceLabel: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Button(entry.name ?? entry.id, action: onInspect)
+                        .buttonStyle(.intent(.text))
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(entry.id)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(entry.enabled == true ? store.localeStore.text("gui.extensions.statusEnabled") : store.localeStore.text("gui.extensions.statusDisabled"))
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .glassSurface(
+                            cornerRadius: 999,
+                            material: .ultraThinMaterial,
+                            tint: entry.enabled == true ? Color.green.opacity(0.05) : Color.secondary.opacity(0.04),
+                            border: entry.enabled == true ? Color.green.opacity(0.18) : Color.secondary.opacity(0.14),
+                            borderWidth: 0.9,
+                            shadowColor: .clear,
+                            shadowRadius: 0,
+                            shadowY: 0
+                        )
+                        .clipShape(Capsule())
+                    if isSelected {
+                        Text(store.localeStore.text("gui.extensions.selectedBadge"))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .glassSurface(
+                                cornerRadius: 999,
+                                material: .ultraThinMaterial,
+                                tint: Color.accentColor.opacity(0.04),
+                                border: Color.accentColor.opacity(0.22),
+                                borderWidth: 0.9,
+                                shadowColor: .clear,
+                                shadowRadius: 0,
+                                shadowY: 0
+                            )
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            keyValueRow(store.localeStore.text("gui.extensions.type"), entry.type ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.extensions.source"), sourceLabel)
+            keyValueRow(store.localeStore.text("gui.extensions.trust"), entry.reviewStatus ?? entry.trustLevel ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.extensions.installSourceType"), entry.installSourceType ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.extensions.capabilities"), entry.capabilities?.joined(separator: ", ") ?? store.localeStore.text("gui.common.notSet"))
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Button(store.localeStore.text("gui.extensions.enable"), action: onEnable)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.extensions.disable"), action: onDisable)
+                        .buttonStyle(.intent(.danger))
+                    Button(store.localeStore.text("gui.extensions.update"), action: onUpdate)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.extensions.remove"), action: onRemove)
+                        .buttonStyle(.intent(.danger))
+                    Spacer()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(store.localeStore.text("gui.extensions.enable"), action: onEnable)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.extensions.disable"), action: onDisable)
+                        .buttonStyle(.intent(.danger))
+                    Button(store.localeStore.text("gui.extensions.update"), action: onUpdate)
+                        .buttonStyle(.intent(.secondary))
+                    Button(store.localeStore.text("gui.extensions.remove"), action: onRemove)
+                        .buttonStyle(.intent(.danger))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .glassSurface(
+            cornerRadius: 14,
+            material: .ultraThinMaterial,
+            tint: isSelected ? Color.accentColor.opacity(0.05) : Color.primary.opacity(0.015),
+            border: isSelected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.10),
+            shadowRadius: 8
+        )
+    }
+}
+
+private struct RegistryCardView: View {
+    @EnvironmentObject private var store: WorkspaceStore
+    let entry: RegistryCatalogEntryFile
+    let isSelected: Bool
+    let onInspect: () -> Void
+    let onInstall: () -> Void
+    let trustLabel: String
+    let trustTint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Button(entry.name ?? entry.id, action: onInspect)
+                        .buttonStyle(.intent(.text))
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(entry.id)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(trustLabel)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .glassSurface(
+                            cornerRadius: 999,
+                            material: .ultraThinMaterial,
+                            tint: trustTint.opacity(0.05),
+                            border: trustTint.opacity(0.20),
+                            borderWidth: 0.9,
+                            shadowColor: .clear,
+                            shadowRadius: 0,
+                            shadowY: 0
+                        )
+                        .clipShape(Capsule())
+                    if isSelected {
+                        Text(store.localeStore.text("gui.registry.selectedBadge"))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .glassSurface(
+                                cornerRadius: 999,
+                                material: .ultraThinMaterial,
+                                tint: Color.accentColor.opacity(0.04),
+                                border: Color.accentColor.opacity(0.22),
+                                borderWidth: 0.9,
+                                shadowColor: .clear,
+                                shadowRadius: 0,
+                                shadowY: 0
+                            )
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            keyValueRow(store.localeStore.text("gui.registry.publisher"), entry.publisher ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.registry.reviewStatus"), entry.reviewStatus ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.registry.source"), entry.registrySourceLabel ?? entry.registrySourceLocation ?? store.localeStore.text("gui.common.notSet"))
+            keyValueRow(store.localeStore.text("gui.registry.capabilities"), entry.capabilities?.joined(separator: ", ") ?? store.localeStore.text("gui.common.notSet"))
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Button(store.localeStore.text("gui.registry.install"), action: onInstall)
+                        .buttonStyle(.intent(.primary))
+                    Button(store.localeStore.text("gui.registry.inspect"), action: onInspect)
+                        .buttonStyle(.intent(.text))
+                    Spacer()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(store.localeStore.text("gui.registry.install"), action: onInstall)
+                        .buttonStyle(.intent(.primary))
+                    Button(store.localeStore.text("gui.registry.inspect"), action: onInspect)
+                        .buttonStyle(.intent(.text))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .glassSurface(
+            cornerRadius: 14,
+            material: .ultraThinMaterial,
+            tint: isSelected ? Color.accentColor.opacity(0.05) : Color.primary.opacity(0.015),
+            border: isSelected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.10),
+            shadowRadius: 8
+        )
+    }
+}
+
 struct PromptInspectorView: View {
     @EnvironmentObject private var store: WorkspaceStore
 
@@ -884,7 +1082,14 @@ struct PromptInspectorView: View {
                             .textFieldStyle(.roundedBorder)
                         TextEditor(text: $store.promptInstruction)
                             .frame(minHeight: 110)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+                            .glassSurface(
+                                cornerRadius: 8,
+                                material: .ultraThinMaterial,
+                                tint: Color.primary.opacity(0.01),
+                                border: Color.primary.opacity(0.10),
+                                shadowRadius: 0,
+                                shadowY: 0
+                            )
                     }
                 }
                 ViewThatFits(in: .horizontal) {
@@ -922,7 +1127,14 @@ struct PromptInspectorView: View {
                         TextEditor(text: .constant(store.console.map { $0.text }.joined(separator: "\n")))
                             .font(.system(.body, design: .monospaced))
                             .frame(minHeight: 300)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+                            .glassSurface(
+                                cornerRadius: 8,
+                                material: .ultraThinMaterial,
+                                tint: Color.primary.opacity(0.01),
+                                border: Color.primary.opacity(0.10),
+                                shadowRadius: 0,
+                                shadowY: 0
+                            )
                             .disabled(true)
                     }
                 }
@@ -1014,7 +1226,14 @@ struct PatchesView: View {
                         TextEditor(text: .constant(diff))
                             .font(.system(.body, design: .monospaced))
                             .frame(minHeight: 320)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+                            .glassSurface(
+                                cornerRadius: 8,
+                                material: .ultraThinMaterial,
+                                tint: Color.primary.opacity(0.01),
+                                border: Color.primary.opacity(0.10),
+                                shadowRadius: 0,
+                                shadowY: 0
+                            )
                             .disabled(true)
                     } else {
                         EmptyStateView(
@@ -1052,7 +1271,14 @@ struct PolicyView: View {
                 TextEditor(text: .constant(policyJSON))
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 360)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
+                    .glassSurface(
+                        cornerRadius: 8,
+                        material: .ultraThinMaterial,
+                        tint: Color.primary.opacity(0.01),
+                        border: Color.primary.opacity(0.10),
+                        shadowRadius: 0,
+                        shadowY: 0
+                    )
                     .disabled(true)
             }
         }
@@ -1189,15 +1415,21 @@ struct SessionView: View {
                         )
                     } else {
                         ScrollView {
-                            Text(store.sessionOutputText)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                                .font(.system(.body, design: .monospaced))
-                                .textSelection(.enabled)
-                                .padding(8)
+                            TypewriterTextView(
+                                text: store.sessionOutputText,
+                                isActive: store.sessionIsRunning,
+                                font: .system(.body, design: .monospaced)
+                            )
+                            .padding(8)
                         }
                         .frame(minHeight: 260)
-                        .background(.quaternary.opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .glassSurface(
+                            cornerRadius: 8,
+                            material: .ultraThinMaterial,
+                            tint: Color.primary.opacity(0.015),
+                            border: Color.primary.opacity(0.10),
+                            shadowRadius: 8
+                        )
                     }
                 }
             }
@@ -1246,19 +1478,28 @@ struct SettingsView: View {
 
 struct SectionShell<Content: View>: View {
     let title: String
+    var compact: Bool = false
     @ViewBuilder var content: Content
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: compact ? 10 : 14) {
                 Text(title)
-                    .font(.title2.weight(.semibold))
-                    .padding(.bottom, 2)
+                    .font(compact ? .headline : .title2.weight(.semibold))
+                    .padding(.bottom, compact ? 0 : 2)
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(18)
+            .padding(compact ? 12 : 18)
+            .glassSurface(
+                cornerRadius: compact ? 18 : 24,
+                material: .ultraThinMaterial,
+                tint: Color.primary.opacity(compact ? 0.012 : 0.015),
+                border: Color.primary.opacity(compact ? 0.08 : 0.10),
+                shadowRadius: compact ? 8 : 14
+            )
         }
+        .scrollContentBackground(.hidden)
         .buttonStyle(.intent(.text))
     }
 }
@@ -1281,9 +1522,13 @@ struct StatusChip: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.08))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(tint.opacity(0.22)))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .glassSurface(
+            cornerRadius: 14,
+            material: .ultraThinMaterial,
+            tint: tint.opacity(0.04),
+            border: tint.opacity(0.22),
+            shadowRadius: 8
+        )
         .animation(IntentMotion.selection, value: value)
     }
 }
@@ -1318,7 +1563,7 @@ struct EmptyStateView: View {
         VStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(.quaternary.opacity(0.55))
+                    .fill(Color.primary.opacity(0.08))
                     .frame(width: 54, height: 54)
                 Image(systemName: systemImage)
                     .font(.system(size: 24, weight: .semibold))
@@ -1341,32 +1586,36 @@ struct EmptyStateView: View {
         .frame(maxWidth: .infinity, minHeight: 210, alignment: .center)
         .padding(.vertical, 18)
         .padding(.horizontal, 20)
-        .background(.quaternary.opacity(0.12))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.quaternary))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .glassSurface(
+            cornerRadius: 16,
+            material: .ultraThinMaterial,
+            tint: Color.primary.opacity(0.02),
+            border: Color.primary.opacity(0.10),
+            shadowRadius: 10
+        )
         .animation(IntentMotion.selection, value: primaryActionTitle)
     }
 }
 
-private func keyValueRow(_ label: String, _ value: String) -> some View {
+private func keyValueRow(_ label: String, _ value: String, compact: Bool = false) -> some View {
     ViewThatFits(in: .horizontal) {
         HStack(alignment: .top, spacing: 12) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(compact ? .caption : .subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: 140, idealWidth: 180, maxWidth: 220, alignment: .leading)
+                .frame(minWidth: compact ? 110 : 140, idealWidth: compact ? 140 : 180, maxWidth: compact ? 180 : 220, alignment: .leading)
             Text(value)
-                .font(.subheadline)
+                .font(compact ? .caption : .subheadline)
                 .lineLimit(2)
                 .truncationMode(.tail)
             Spacer()
         }
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(compact ? .caption : .subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.subheadline)
+                .font(compact ? .caption : .subheadline)
                 .lineLimit(3)
                 .truncationMode(.tail)
         }

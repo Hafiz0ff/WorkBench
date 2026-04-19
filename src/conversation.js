@@ -71,6 +71,7 @@ function normalizeMessage(message) {
   if (!content) {
     throw new Error('Conversation message content is required.');
   }
+  const confidence = Number(message?.confidence?.score ?? message?.confidence);
   return {
     id: typeof message?.id === 'string' && message.id.trim() ? message.id.trim() : createMessageId(),
     role: normalizeRole(message?.role),
@@ -80,6 +81,8 @@ function normalizeMessage(message) {
     model: typeof message?.model === 'string' && message.model.trim() ? message.model.trim() : null,
     sessionId: typeof message?.sessionId === 'string' && message.sessionId.trim() ? message.sessionId.trim() : null,
     tokens: message?.tokens && typeof message.tokens === 'object' ? message.tokens : undefined,
+    confidence: Number.isFinite(confidence) ? confidence : undefined,
+    confidenceSource: typeof message?.confidenceSource === 'string' && message.confidenceSource.trim() ? message.confidenceSource.trim() : null,
   };
 }
 
@@ -141,6 +144,8 @@ export async function readHistory(taskDir) {
           model: typeof parsed.model === 'string' ? parsed.model : null,
           sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : null,
           tokens: parsed.tokens && typeof parsed.tokens === 'object' ? parsed.tokens : undefined,
+          confidence: Number.isFinite(Number(parsed.confidence?.score ?? parsed.confidence)) ? Number(parsed.confidence?.score ?? parsed.confidence) : undefined,
+          confidenceSource: typeof parsed.confidenceSource === 'string' ? parsed.confidenceSource : null,
         });
       }
     } catch {

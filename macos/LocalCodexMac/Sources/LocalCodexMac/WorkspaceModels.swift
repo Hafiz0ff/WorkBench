@@ -28,6 +28,19 @@ struct PolicyFile: Codable {
     var maxCommandOutputChars: Int?
 }
 
+struct ProviderEntrySnapshot: Codable, Hashable {
+    var enabled: Bool?
+    var model: String?
+    var defaultModel: String?
+}
+
+struct ProvidersConfigSnapshot: Codable, Hashable {
+    var active: String?
+    var fallback: String?
+    var `default`: String?
+    var providers: [String: ProviderEntrySnapshot]?
+}
+
 struct ExtensionSourceFile: Codable, Hashable {
     var kind: String?
     var owner: String?
@@ -278,6 +291,7 @@ struct WorkspaceSnapshot {
     var memoryExists: Bool
     var state: ProjectStateFile?
     var policy: PolicyFile?
+    var providers: ProvidersConfigSnapshot?
     var extensions: ExtensionRegistryFile?
     var registrySources: RegistryCatalogFile?
     var registryCatalog: RegistryCatalogFile?
@@ -312,6 +326,7 @@ extension WorkspaceSnapshot {
 
         let state = readJSON(".local-codex/state.json", as: ProjectStateFile.self)
         let policy = readJSON(".local-codex/policy.json", as: PolicyFile.self)
+        let providers = readJSON(".local-codex/providers.json", as: ProvidersConfigSnapshot.self)
         let extensions = readJSON(".local-codex/extensions/registry.json", as: ExtensionRegistryFile.self)
         let registrySources = readJSON(".local-codex/extensions/sources.json", as: RegistryCatalogFile.self)
         let registryCatalog = readJSON(".local-codex/extensions/catalog.json", as: RegistryCatalogFile.self)
@@ -340,6 +355,7 @@ extension WorkspaceSnapshot {
             memoryExists: fileManager.fileExists(atPath: memoryRoot.path),
             state: state,
             policy: policy,
+            providers: providers,
             extensions: extensions,
             registrySources: registrySources,
             registryCatalog: registryCatalog,

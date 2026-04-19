@@ -18,6 +18,17 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum WorkspaceInspectorTab: String, CaseIterable, Identifiable {
+    case task
+    case role
+    case context
+    case patch
+    case logs
+    case advanced
+
+    var id: String { rawValue }
+}
+
 struct ConsoleEntry: Identifiable, Hashable {
     enum Kind: String {
         case info
@@ -49,13 +60,16 @@ final class WorkspaceStore: ObservableObject {
     @Published var sessionOutputText: String = ""
     @Published var sessionIsRunning = false
     @Published var sessionProcessStatus: String = ""
+    @Published var modelOverrideInput: String = ""
     @Published var extensionSourceInput: String = ""
     @Published var extensionPathInput: String = ""
     @Published var extensionRefInput: String = ""
     let localeStore = LocalizationStore()
     @Published var isLoading = false
     @Published var selectedTaskId: String?
+    @Published var taskActionMessage: String?
     @Published var selectedRoleName: String?
+    @Published var selectedInspectorTab: WorkspaceInspectorTab = .task
     @Published var selectedExtensionId: String?
     @Published var selectedRegistryId: String?
     @Published var roleActionMessage: String?
@@ -176,8 +190,28 @@ final class WorkspaceStore: ObservableObject {
         snapshot?.state?.activeRole ?? localeStore.text("gui.common.notSet")
     }
 
+    var currentProviderDisplay: String {
+        snapshot?.providers?.active
+            ?? snapshot?.providers?.default
+            ?? localeStore.text("gui.common.notSet")
+    }
+
+    var currentProviderName: String? {
+        snapshot?.providers?.active
+            ?? snapshot?.providers?.default
+            ?? snapshot?.providers?.fallback
+    }
+
     var currentModelDisplay: String {
-        snapshot?.state?.selectedModel ?? localeStore.text("gui.common.notSet")
+        if let model = snapshot?.state?.selectedModel, !model.isEmpty {
+            return model
+        }
+        if let provider = currentProviderName,
+           let model = snapshot?.providers?.providers?[provider]?.model ?? snapshot?.providers?.providers?[provider]?.defaultModel,
+           !model.isEmpty {
+            return model
+        }
+        return localeStore.text("gui.common.notSet")
     }
 
     var currentTaskDisplay: String {
@@ -196,6 +230,51 @@ final class WorkspaceStore: ObservableObject {
             return "\(taskId) — \(taskTitle)"
         }
         return taskId
+    }
+
+    var currentTaskEntry: TaskIndexEntry? {
+        guard let taskId = selectedTaskId ?? snapshot?.state?.currentTaskId else {
+            return nil
+        }
+        return snapshot?.tasks.first(where: { $0.id == taskId })
+    }
+
+    var currentTaskRequestDisplay: String {
+        let request = currentTaskEntry?.userRequest?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return request.isEmpty ? localeStore.text("gui.common.notSet") : request
+    }
+
+    var currentTaskFilesDisplay: String {
+        guard let files = currentTaskEntry?.relevantFiles, !files.isEmpty else {
+            return localeStore.text("gui.common.notSet")
+        }
+        return files.prefix(3).joined(separator: ", ")
+    }
+
+    var currentTaskNotesDisplay: String {
+        guard let notes = currentTaskEntry?.lastRunNotes, !notes.isEmpty else {
+            return localeStore.text("gui.common.notSet")
+        }
+        return localeStore.text("gui.workspace.notesCount", notes.count)
+    }
+
+    var diagnosticsSummaryDisplay: String {
+        guard !console.isEmpty else {
+            return localeStore.text("gui.common.notSet")
+        }
+        let errorCount = console.filter { $0.kind == .error }.count
+        return localeStore.text("gui.workspace.diagnosticsSummary", console.count, errorCount)
+    }
+
+    var sessionOutputExcerptDisplay: String {
+        let lines = sessionOutputText
+            .split(whereSeparator: \.isNewline)
+            .prefix(4)
+            .map(String.init)
+        guard !lines.isEmpty else {
+            return localeStore.text("gui.common.notSet")
+        }
+        return lines.joined(separator: "\n")
     }
 
     var approvalModeDisplay: String {
@@ -368,6 +447,9 @@ final class WorkspaceStore: ObservableObject {
             snapshot = try WorkspaceSnapshot.load(projectRoot: root)
             selectedTaskId = snapshot?.state?.currentTaskId
             selectedRoleName = snapshot?.state?.activeRole
+            if modelOverrideInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                modelOverrideInput = currentModelDisplay
+            }
             if selectedRegistryId == nil {
                 selectedRegistryId = snapshot?.registryCatalog?.entries?.first?.id
             }
@@ -430,38 +512,48 @@ final class WorkspaceStore: ObservableObject {
             args += ["--task", promptInstruction]
         }
         await runCLI(args, refreshAfter: false)
-        selectedSection = .prompt
+        selectedInspectorTab = .context
+        selectedSection = .project
     }
 
     func inspectDiff() async {
         await runCLI(["diff"], refreshAfter: false)
-        selectedSection = .patches
+        selectedInspectorTab = .patch
+        selectedSection = .project
     }
 
     func patchStatus() async {
         await runCLI(["patch", "status"], refreshAfter: false)
-        selectedSection = .patches
+        selectedInspectorTab = .patch
+        selectedSection = .project
     }
 
     func applyPatch() async {
         await runCLI(["patch", "apply"])
-        selectedSection = .patches
+        selectedInspectorTab = .patch
+        selectedSection = .project
     }
 
     func rejectPatch() async {
         await runCLI(["patch", "reject"])
-        selectedSection = .patches
+        selectedInspectorTab = .patch
+        selectedSection = .project
     }
 
-    func createTask() async {
+    func createTask() async -> TaskIndexEntry? {
+        let previousTaskIds = Set(snapshot?.tasks.map(\.id) ?? [])
         var args = ["task", "create", "--title", taskTitle]
         if !taskRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["--request", taskRequest]
         }
         await runCLI(args)
-        taskTitle = ""
-        taskRequest = ""
-        selectedSection = .tasks
+        let createdTask = snapshot?.tasks.first(where: { !previousTaskIds.contains($0.id) })
+        if createdTask != nil {
+            taskTitle = ""
+            taskRequest = ""
+        }
+        selectedSection = .project
+        return createdTask
     }
 
     func dismissProjectLaunchBanner() {
@@ -490,9 +582,7 @@ final class WorkspaceStore: ObservableObject {
         let generatedTitle = deriveProjectTaskTitle(from: request)
         taskTitle = generatedTitle
         taskRequest = request
-        await createTask()
-
-        guard let createdTask = snapshot?.tasks.first(where: { $0.title == generatedTitle && $0.userRequest == request }) else {
+        guard let createdTask = await createTask() else {
             appendConsole(localeStore.text("gui.project.taskCreateFailed"), kind: .error)
             return
         }
@@ -503,13 +593,20 @@ final class WorkspaceStore: ObservableObject {
 
         projectComposerText = ""
         await startSession(with: request)
-        selectedSection = .session
+        selectedInspectorTab = .logs
+        selectedSection = .project
     }
 
     func useTask(_ taskId: String) async {
         await runCLI(["task", "use", taskId])
         selectedTaskId = taskId
-        selectedSection = .tasks
+        if let task = snapshot?.tasks.first(where: { $0.id == taskId }) {
+            taskActionMessage = localeStore.text("gui.tasks.activatedMessage", task.title)
+        } else {
+            taskActionMessage = localeStore.text("gui.tasks.activatedMessage", taskId)
+        }
+        selectedInspectorTab = .task
+        selectedSection = .project
     }
 
     func archiveTask(_ taskId: String) async {
@@ -519,12 +616,17 @@ final class WorkspaceStore: ObservableObject {
     func useRole(_ roleName: String) async {
         await runCLI(["roles", "use", roleName])
         selectedRoleName = roleName
-        selectedSection = .roles
+        roleActionMessage = localeStore.text("gui.roles.activatedMessage", roleName)
+        selectedInspectorTab = .role
+        selectedSection = .project
     }
 
     func inspectRole(_ roleName: String) async {
         await runCLI(["roles", "show", roleName], refreshAfter: false)
-        selectedSection = .roles
+        selectedRoleName = roleName
+        roleActionMessage = localeStore.text("gui.roles.shownMessage", roleName)
+        selectedInspectorTab = .role
+        selectedSection = .project
     }
 
     func scaffoldRoles() async {
@@ -536,7 +638,8 @@ final class WorkspaceStore: ObservableObject {
         } else {
             roleActionMessage = localeStore.text("gui.roles.scaffoldWarning")
         }
-        selectedSection = .roles
+        selectedInspectorTab = .role
+        selectedSection = .project
     }
 
     func installExtension() async {
@@ -553,54 +656,79 @@ final class WorkspaceStore: ObservableObject {
             args += ["--ref", extensionRefInput]
         }
         await runCLI(args)
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func refreshExtensions() async {
         await runCLI(["extensions", "doctor"])
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func refreshRegistry() async {
         await runCLI(["registry", "refresh"])
-        selectedSection = .registry
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func inspectExtension(_ extensionId: String) async {
         selectedExtensionId = extensionId
         await runCLI(["extensions", "inspect", extensionId], refreshAfter: false)
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func enableExtension(_ extensionId: String) async {
         await runCLI(["extensions", "enable", extensionId, "--yes"])
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func disableExtension(_ extensionId: String) async {
         await runCLI(["extensions", "disable", extensionId])
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func updateExtension(_ extensionId: String) async {
         await runCLI(["extensions", "update", extensionId, "--yes"])
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func removeExtension(_ extensionId: String) async {
         await runCLI(["extensions", "remove", extensionId, "--yes"])
-        selectedSection = .extensions
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func inspectRegistryEntry(_ entryId: String) async {
         selectedRegistryId = entryId
         await runCLI(["registry", "show", entryId], refreshAfter: false)
-        selectedSection = .registry
+        selectedInspectorTab = .advanced
+        selectedSection = .project
     }
 
     func installRegistryEntry(_ entryId: String) async {
         await runCLI(["registry", "install", entryId, "--yes"])
-        selectedSection = .registry
+        selectedInspectorTab = .advanced
+        selectedSection = .project
+    }
+
+    func applyModelOverride() async {
+        let model = modelOverrideInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else {
+            appendConsole(localeStore.text("gui.errors.modelMissing"), kind: .error)
+            return
+        }
+        guard let provider = currentProviderName else {
+            appendConsole(localeStore.text("gui.errors.providerMissing"), kind: .error)
+            return
+        }
+        await runCLI(["provider", "use", provider, "--model", model])
+        modelOverrideInput = model
+        selectedInspectorTab = .context
     }
 
     func startSession(with request: String) async {

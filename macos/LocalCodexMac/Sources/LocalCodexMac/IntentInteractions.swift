@@ -46,7 +46,7 @@ struct IntentButtonStyle: ButtonStyle {
         case .text:
             AnyShapeStyle(.clear)
         case .secondary:
-            AnyShapeStyle(Color(nsColor: .controlBackgroundColor).opacity(0.32))
+            AnyShapeStyle(.ultraThinMaterial)
         case .primary:
             AnyShapeStyle(Color.accentColor.opacity(0.92))
         case .danger:
@@ -64,7 +64,7 @@ struct IntentButtonStyle: ButtonStyle {
         case .text:
             .clear
         case .secondary:
-            Color.primary.opacity(0.10)
+            Color.primary.opacity(0.12)
         case .primary:
             Color.white.opacity(0.16)
         case .danger:

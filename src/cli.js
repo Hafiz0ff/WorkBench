@@ -769,7 +769,7 @@ async function runProjectStart(projectPath, options, t, locale) {
         text,
         source,
       }, { locale }),
-      onTurnComplete: async ({ userInput, assistantMessage, toolResults }) => {
+      onTurnComplete: async ({ userInput, assistantMessage, assistantConfidence, toolResults }) => {
         const pieces = [];
         const taskDir = getTaskFolderPath(project.root, currentTask);
         if (userInput) {
@@ -793,6 +793,8 @@ async function runProjectStart(projectPath, options, t, locale) {
             provider: selectedProvider.name,
             model,
             sessionId,
+            confidence: assistantConfidence?.score ?? assistantConfidence ?? undefined,
+            confidenceSource: assistantConfidence?.source || null,
           });
           pieces.push(`Ответ: ${assistantMessage}`);
         }
@@ -2759,7 +2761,7 @@ async function handleTaskCommand(subcommand, options, t, locale) {
           text,
           source,
         }, { locale }),
-        onTurnComplete: async ({ userInput, assistantMessage }) => {
+        onTurnComplete: async ({ userInput, assistantMessage, assistantConfidence }) => {
           const taskDir = getTaskFolderPath(project.root, task);
           if (userInput) {
             await appendConversationMessage(taskDir, {
@@ -2781,6 +2783,8 @@ async function handleTaskCommand(subcommand, options, t, locale) {
               provider: provider.name,
               model,
               sessionId,
+              confidence: assistantConfidence?.score ?? assistantConfidence ?? undefined,
+              confidenceSource: assistantConfidence?.source || null,
             });
           }
           await setTaskLastSessionId(project.root, task.id, sessionId, locale);

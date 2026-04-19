@@ -7,6 +7,7 @@ import { checkLimit, createBudgetError, trackUsage } from './budget.js';
 import { readProjectPolicy } from './policy.js';
 import { semanticSearch, formatForContext } from './search.js';
 import { runExtensionHook } from './extensions.js';
+import { confidenceFromRaw } from './confidence.js';
 
 function stripCodeFence(text) {
   const trimmed = text.trim();
@@ -125,8 +126,16 @@ function estimateMessageTokens(messages) {
 }
 
 async function runModelRound({ projectRoot = null, provider, model, messages, policy = null, taskId = null }) {
-  const content = await collectModelText(projectRoot, provider, model, messages, { policy, taskId });
-  return parseAssistantEnvelope(content);
+  const response = await collectModelResponse(projectRoot, provider, model, messages, { policy, taskId });
+  const parsed = parseAssistantEnvelope(response.content);
+  return {
+    ...parsed,
+    confidence: response.confidence,
+    provider: response.provider,
+    model: response.model,
+    raw: response.raw,
+    usage: response.usage,
+  };
 }
 
 async function enrichMessagesWithSemanticContext(projectRoot, messages, policy = null) {
@@ -170,7 +179,7 @@ async function enrichMessagesWithSemanticContext(projectRoot, messages, policy =
   }
 }
 
-async function collectModelText(projectRoot, provider, model, messages, { policy = null, taskId = null } = {}) {
+async function collectModelResponse(projectRoot, provider, model, messages, { policy = null, taskId = null, preferCompletion = false } = {}) {
   if (projectRoot) {
     const budgetCheck = await checkLimit(projectRoot, provider?.name || 'unknown');
     const resolvedPolicy = policy || await readProjectPolicy(projectRoot).catch(() => null);
@@ -193,16 +202,32 @@ async function collectModelText(projectRoot, provider, model, messages, { policy
       throw new Error(prePrompt.abortReason || 'Prompt aborted by extension.');
     }
   }
+  let completion = null;
   let content = '';
-  for await (const chunk of provider.chat(messages, { model })) {
-    content += chunk;
+  if (preferCompletion && typeof provider?.complete === 'function') {
+    completion = await provider.complete(messages, {
+      model,
+      logprobs: true,
+    });
+    content = String(completion?.content || '');
+  } else {
+    for await (const chunk of provider.chat(messages, { model })) {
+      content += chunk;
+    }
+    completion = {
+      content,
+      raw: null,
+      usage: null,
+      provider: provider?.name || 'unknown',
+      model: model || provider?.defaultModel || null,
+    };
   }
   if (projectRoot) {
     const postResponse = await runExtensionHook(projectRoot, 'post-response', {
       content,
       provider: provider?.name || 'unknown',
       model: model || provider?.defaultModel || null,
-      usage: null,
+      usage: completion?.usage || null,
       taskId,
     }, {
       policy: policy || await readProjectPolicy(projectRoot).catch(() => null),
@@ -215,19 +240,28 @@ async function collectModelText(projectRoot, provider, model, messages, { policy
     void trackUsage(projectRoot, {
       provider: provider?.name || 'unknown',
       model: model || provider?.defaultModel || null,
-      promptTokens: estimateMessageTokens(messages),
-      completionTokens: estimateTokens(content),
-      estimated: true,
+      promptTokens: completion?.usage?.promptTokens ?? estimateMessageTokens(messages),
+      completionTokens: completion?.usage?.completionTokens ?? estimateTokens(content),
+      totalTokens: completion?.usage?.totalTokens ?? null,
+      estimated: !completion?.usage,
     }).catch(() => {});
     void trackEvent(projectRoot, {
       type: 'provider.request',
       provider: provider?.name || 'unknown',
       model: model || provider?.defaultModel || null,
-      promptTokens: estimateMessageTokens(messages),
-      completionTokens: estimateTokens(content),
+      promptTokens: completion?.usage?.promptTokens ?? estimateMessageTokens(messages),
+      completionTokens: completion?.usage?.completionTokens ?? estimateTokens(content),
+      totalTokens: completion?.usage?.totalTokens ?? null,
     });
   }
-  return content;
+  return {
+    content,
+    raw: completion?.raw || null,
+    usage: completion?.usage || null,
+    confidence: confidenceFromRaw(completion?.raw),
+    provider: completion?.provider || provider?.name || 'unknown',
+    model: completion?.model || model || provider?.defaultModel || null,
+  };
 }
 
 export async function generatePatch({
@@ -245,7 +279,8 @@ export async function generatePatch({
       { role: 'system', content: String(prompt || '').trim() },
       ...(Array.isArray(context) ? context : []),
     ].filter((message) => typeof message?.content === 'string' && message.content.trim());
-  return collectModelText(projectRoot, provider, model, payload, { policy });
+  const response = await collectModelResponse(projectRoot, provider, model, payload, { policy, preferCompletion: true });
+  return response.content;
 }
 
 export async function runInteractiveAgent({
@@ -263,6 +298,10 @@ export async function runInteractiveAgent({
   initialUserInput = '',
 }) {
   const rl = readline.createInterface({ input, output });
+  let inputClosed = false;
+  rl.once('close', () => {
+    inputClosed = true;
+  });
   const history = Array.isArray(initialConversationHistory) ? [...initialConversationHistory] : [];
   const activeTaskId = taskTools.currentTaskId || null;
   const activeMode = activeTaskId ? 'auto' : 'manual';
@@ -295,6 +334,7 @@ export async function runInteractiveAgent({
     ];
 
     let lastAssistantMessage = '';
+    let lastAssistantConfidence = null;
     let rounds = 0;
     const turnToolResults = [];
 
@@ -302,6 +342,7 @@ export async function runInteractiveAgent({
       rounds += 1;
       const assistant = await runModelRound({ projectRoot: root, provider, model, messages, policy, taskId: activeTaskId });
       lastAssistantMessage = assistant.message || '';
+      lastAssistantConfidence = assistant.confidence || null;
       if (assistant.message) {
         console.log(`\n${assistant.message}\n`);
       }
@@ -352,6 +393,7 @@ export async function runInteractiveAgent({
       await taskTools.onTurnComplete({
         userInput: promptText,
         assistantMessage: lastAssistantMessage,
+        assistantConfidence: lastAssistantConfidence,
         toolResults: turnToolResults,
       });
     }
@@ -373,7 +415,15 @@ export async function runInteractiveAgent({
   }
 
   while (true) {
-    const userInput = await rl.question(promptLabel);
+    let userInput;
+    try {
+      userInput = await rl.question(promptLabel);
+    } catch {
+      break;
+    }
+    if (inputClosed) {
+      break;
+    }
     const trimmed = userInput.trim();
 
     if (!trimmed) {

@@ -50,6 +50,8 @@ test('conversation history appends, reads, and groups sessions', async () => {
     provider: 'ollama',
     model: 'qwen2.5-coder:14b',
     sessionId: 'sess-20260413-a1',
+    confidence: 0.42,
+    confidenceSource: 'logprobs',
   });
   await appendMessage(task.folderPath, {
     role: 'user',
@@ -75,6 +77,8 @@ test('conversation history appends, reads, and groups sessions', async () => {
   assert.equal(stats.sessionCount, 2);
   assert.equal(history[0].content, 'Первое сообщение');
   assert.equal(history[2].sessionId, 'sess-20260413-b2');
+  assert.equal(history[1].confidence, 0.42);
+  assert.equal(history[1].confidenceSource, 'logprobs');
 });
 
 test('conversation summary generation writes markdown summary and exposes it', async () => {

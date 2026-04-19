@@ -99,6 +99,8 @@ export function createProvider(config = {}, deps = {}) {
         stream: false,
         temperature: options.temperature,
         max_tokens: options.maxTokens,
+        logprobs: options.logprobs === true ? true : undefined,
+        top_logprobs: options.logprobs === true ? 1 : undefined,
       }),
       maxRetries: Number(config.maxRetries) || 0,
       timeoutMs: Number(config.timeout) || 60000,

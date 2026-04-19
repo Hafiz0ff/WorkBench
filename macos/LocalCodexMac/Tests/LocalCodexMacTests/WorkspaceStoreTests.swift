@@ -109,7 +109,8 @@ final class WorkspaceStoreTests: XCTestCase {
 
         let calls = await runner.calls
         XCTAssertEqual(calls, [["roles", "scaffold"]])
-        XCTAssertEqual(store.selectedSection, .roles)
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .role)
         XCTAssertEqual(store.snapshot?.roles.count, 1)
         XCTAssertEqual(store.snapshot?.roles.first?.name, "senior-engineer")
         XCTAssertEqual(store.roleActionMessage, store.localeStore.text("gui.roles.scaffoldSuccess", 1))
@@ -195,15 +196,93 @@ final class WorkspaceStoreTests: XCTestCase {
         store.taskTitle = "Auth refactor"
         store.taskRequest = "Refactor auth"
 
-        await store.createTask()
+        _ = await store.createTask()
 
         let calls = await runner.calls
         XCTAssertEqual(Array(calls.first?.prefix(3) ?? []), ["task", "create", "--title"])
-        XCTAssertEqual(store.selectedSection, .tasks)
+        XCTAssertEqual(store.selectedSection, .project)
         XCTAssertEqual(store.taskTitle, "")
         XCTAssertEqual(store.taskRequest, "")
         XCTAssertEqual(store.snapshot?.tasks.count, 1)
         XCTAssertEqual(store.snapshot?.state?.currentTaskId, "task-1")
+    }
+
+    func testUseTaskRefreshesSelectionAndShowsFeedback() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try writeProjectState(root, currentTaskId: "task-1")
+
+        let memoryRoot = root.appendingPathComponent(".local-codex", isDirectory: true)
+        let tasksRoot = memoryRoot.appendingPathComponent("tasks", isDirectory: true)
+        try FileManager.default.createDirectory(at: tasksRoot, withIntermediateDirectories: true)
+        let taskIndex = """
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-04-13T00:00:00.000Z",
+          "updatedAt": "2026-04-13T00:00:00.000Z",
+          "currentTaskId": "task-1",
+          "tasks": [
+            {
+              "id": "task-1",
+              "title": "Initial task",
+              "slug": "initial-task",
+              "status": "draft",
+              "createdAt": "2026-04-13T00:00:00.000Z",
+              "updatedAt": "2026-04-13T00:00:00.000Z",
+              "role": "senior-engineer",
+              "model": "qwen2.5-coder:14b",
+              "summary": "First task",
+              "userRequest": "First task",
+              "relevantFiles": [],
+              "lastRunNotes": [],
+              "location": "active",
+              "folder": "active/task-1"
+            },
+            {
+              "id": "task-2",
+              "title": "Follow-up task",
+              "slug": "follow-up-task",
+              "status": "draft",
+              "createdAt": "2026-04-13T00:00:00.000Z",
+              "updatedAt": "2026-04-13T00:00:00.000Z",
+              "role": "senior-engineer",
+              "model": "qwen2.5-coder:14b",
+              "summary": "Second task",
+              "userRequest": "Second task",
+              "relevantFiles": [],
+              "lastRunNotes": [],
+              "location": "active",
+              "folder": "active/task-2"
+            }
+          ]
+        }
+        """
+        try taskIndex.write(to: tasksRoot.appendingPathComponent("index.json"), atomically: true, encoding: .utf8)
+
+        let runner = MockCLICommandRunner(projectRoot: root) { arguments, _, _ in
+            if arguments == ["task", "use", "task-2"] {
+                try writeProjectState(root, currentTaskId: "task-2")
+                try taskIndex.write(to: tasksRoot.appendingPathComponent("index.json"), atomically: true, encoding: .utf8)
+            }
+        }
+
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+
+        await store.refreshSnapshot()
+        XCTAssertEqual(store.snapshot?.state?.currentTaskId, "task-1")
+
+        await store.useTask("task-2")
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls, [["task", "use", "task-2"]])
+        XCTAssertEqual(store.selectedTaskId, "task-2")
+        XCTAssertEqual(store.snapshot?.state?.currentTaskId, "task-2")
+        XCTAssertEqual(store.taskActionMessage, store.localeStore.text("gui.tasks.activatedMessage", "Follow-up task"))
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .task)
     }
 
     func testProjectComposerSubmissionGuardPreventsDuplicateStart() async throws {
@@ -253,7 +332,8 @@ final class WorkspaceStoreTests: XCTestCase {
 
         let calls = await runner.calls
         XCTAssertEqual(calls, [["roles", "use", "designer"]])
-        XCTAssertEqual(store.selectedSection, .roles)
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .role)
         XCTAssertEqual(store.snapshot?.state?.activeRole, "designer")
         XCTAssertEqual(store.currentRoleDisplay, "designer")
     }
@@ -324,7 +404,8 @@ final class WorkspaceStoreTests: XCTestCase {
 
         let calls = await runner.calls
         XCTAssertEqual(calls.first, ["prompt", "inspect", "--role", "code-reviewer", "--task", "Review the auth flow"])
-        XCTAssertEqual(store.selectedSection, .prompt)
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .context)
     }
 
     func testPatchActionsRouteAndRefreshState() async throws {
@@ -398,7 +479,8 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot?.pendingPatch?.status, "pending")
 
         await store.applyPatch()
-        XCTAssertEqual(store.selectedSection, .patches)
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .patch)
         XCTAssertEqual(store.snapshot?.pendingPatch?.status, "applied")
 
         await store.rejectPatch()
@@ -446,6 +528,88 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(calls[0], ["extensions", "install", "owner/repo", "--yes", "--path", "packs/demo", "--ref", "main"])
         XCTAssertEqual(calls[1], ["extensions", "doctor"])
         XCTAssertEqual(calls[2], ["registry", "refresh"])
-        XCTAssertEqual(store.selectedSection, .registry)
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .advanced)
+    }
+
+    func testInspectExtensionAndRegistrySelectionStateUpdatesImmediately() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try writeProjectState(root)
+
+        let memoryRoot = root.appendingPathComponent(".local-codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryRoot.appendingPathComponent("extensions", isDirectory: true), withIntermediateDirectories: true)
+
+        let extensionsJSON = """
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-04-13T00:00:00.000Z",
+          "updatedAt": "2026-04-13T00:00:00.000Z",
+          "extensions": [
+            {
+              "id": "ext.demo",
+              "name": "Demo Extension",
+              "type": "skill",
+              "reviewStatus": "trusted",
+              "trustLevel": "high",
+              "installSourceType": "registry",
+              "enabled": true,
+              "manifestPath": "extensions/demo/manifest.json",
+              "installPath": "extensions/demo",
+              "capabilities": ["task", "inspect"]
+            }
+          ]
+        }
+        """
+        try extensionsJSON.write(to: memoryRoot.appendingPathComponent("extensions/registry.json"), atomically: true, encoding: .utf8)
+
+        let catalogJSON = """
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-04-13T00:00:00.000Z",
+          "updatedAt": "2026-04-13T00:00:00.000Z",
+          "sources": [],
+          "entries": [
+            {
+              "id": "catalog.demo",
+              "name": "Demo Catalog",
+              "type": "skill",
+              "reviewStatus": "reviewed",
+              "registrySourceLabel": "demo",
+              "recommended": true
+            }
+          ],
+          "issues": []
+        }
+        """
+        try catalogJSON.write(to: memoryRoot.appendingPathComponent("extensions/catalog.json"), atomically: true, encoding: .utf8)
+
+        let runner = MockCLICommandRunner(projectRoot: root) { arguments, _, _ in
+            if arguments == ["extensions", "inspect", "ext.demo"] {
+                return
+            }
+            if arguments == ["registry", "show", "catalog.demo"] {
+                return
+            }
+        }
+
+        let store = WorkspaceStore(
+            engineBridge: EngineBridge(engineRoot: root),
+            commandRunner: runner,
+            selectedProjectRoot: root
+        )
+
+        await store.refreshSnapshot()
+        XCTAssertEqual(store.snapshot?.extensions?.extensions?.count, 1)
+        XCTAssertEqual(store.snapshot?.registryCatalog?.entries?.count, 1)
+
+        await store.inspectExtension("ext.demo")
+        XCTAssertEqual(store.selectedExtensionId, "ext.demo")
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .advanced)
+
+        await store.inspectRegistryEntry("catalog.demo")
+        XCTAssertEqual(store.selectedRegistryId, "catalog.demo")
+        XCTAssertEqual(store.selectedSection, .project)
+        XCTAssertEqual(store.selectedInspectorTab, .advanced)
     }
 }

@@ -55,9 +55,19 @@ test('openai provider completes, streams, lists models and reports health', asyn
           const payload = requests.at(-1)?.body;
           assert.equal(payload.model, 'gpt-4o');
           assert.equal(payload.stream, false);
+          assert.equal(payload.logprobs, true);
+          assert.equal(payload.top_logprobs, 1);
           assert.equal(payload.messages[0].role, 'user');
           return jsonResponse({
-            choices: [{ message: { content: 'Hello world' } }],
+            choices: [{
+              message: { content: 'Hello world' },
+              logprobs: {
+                content: [
+                  { token: 'Hello', logprob: -0.05 },
+                  { token: 'world', logprob: -0.12 },
+                ],
+              },
+            }],
             usage: {
               prompt_tokens: 12,
               completion_tokens: 3,
@@ -72,7 +82,7 @@ test('openai provider completes, streams, lists models and reports health', asyn
 
   const completion = await provider.complete([
     { role: 'user', content: 'Say hello' },
-  ], { model: 'gpt-4o' });
+  ], { model: 'gpt-4o', logprobs: true });
 
   assert.equal(completion.content, 'Hello world');
   assert.equal(completion.provider, 'openai');
@@ -81,6 +91,7 @@ test('openai provider completes, streams, lists models and reports health', asyn
     completionTokens: 3,
     totalTokens: 15,
   });
+  assert.equal(completion.raw.choices[0].logprobs.content.length, 2);
 
   const models = await provider.listModels();
   assert.deepEqual(models.map((model) => model.id), ['gpt-4o', 'gpt-4o-mini']);

@@ -15,6 +15,8 @@ struct ProjectComposerTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onSubmit = onSubmit
         textView.isRichText = false
+        textView.isEditable = true
+        textView.isSelectable = true
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false

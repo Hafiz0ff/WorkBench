@@ -764,7 +764,9 @@ function renderTasks() {
                 <div class="card-body">
                   ${state.taskDetail?.history?.length ? `
                     <div class="message-list">
-                      ${state.taskDetail.history.map(renderMessage).join('')}
+                      ${state.taskDetail.history.map((message, index, allMessages) => renderMessage(message, {
+                        isLatestAssistant: message.role === 'assistant' && index === allMessages.length - 1,
+                      })).join('')}
                     </div>
                   ` : emptyState('История пуста', 'Пока нет сообщений для этой задачи.')}
                 </div>
@@ -797,9 +799,48 @@ function renderTasks() {
   );
 }
 
-function renderMessage(message) {
+function resolveConfidence(message) {
+  const direct = Number(message?.confidence?.score ?? message?.confidence);
+  if (Number.isFinite(direct)) {
+    return Math.min(1, Math.max(0, direct));
+  }
+  const nested = Number(message?.tokens?.confidence);
+  if (Number.isFinite(nested)) {
+    return Math.min(1, Math.max(0, nested));
+  }
+  return null;
+}
+
+function renderConfidenceBadge(message) {
+  const confidence = resolveConfidence(message);
+  if (confidence === null) {
+    return '';
+  }
+  const percent = Math.round(confidence * 100);
+  const cls = confidence >= 0.85 ? 'confidence-high' : confidence >= 0.65 ? 'confidence-medium' : 'confidence-low';
+  const label = confidence >= 0.85 ? 'Высокая уверенность' : confidence >= 0.65 ? 'Средняя уверенность' : 'Низкая уверенность';
   return `
-    <div class="message ${escapeHtml(message.role || 'user')}">
+    <span class="tiny-badge confidence ${cls}" title="${escapeHtml(message?.confidenceSource || 'logprobs')}">
+      ${escapeHtml(label)} · ${percent}%
+    </span>
+  `;
+}
+
+function renderTypewriterText(text) {
+  return String(text || '')
+    .split(/(\s+)/)
+    .map((chunk, index) => `<span class="typewriter-chunk" style="--chunk-index:${index}">${escapeHtml(chunk)}</span>`)
+    .join('');
+}
+
+function renderMessage(message, { isLatestAssistant = false } = {}) {
+  const confidence = resolveConfidence(message);
+  const confidenceClass = confidence === null ? 'confidence-unknown' : confidence >= 0.85 ? 'confidence-high' : confidence >= 0.65 ? 'confidence-medium' : 'confidence-low';
+  const assistantContent = message.role === 'assistant' && isLatestAssistant
+    ? renderTypewriterText(message.content || '')
+    : escapeHtml(message.content || '');
+  return `
+    <div class="message ${escapeHtml(message.role || 'user')} ${message.role === 'assistant' ? confidenceClass : ''}">
       <div class="message-head">
         <span class="message-role">${message.role === 'assistant' ? '🤖' : message.role === 'system' ? '🛠' : '👤'}</span>
         <span>${escapeHtml(message.role || 'user')}</span>
@@ -807,8 +848,53 @@ function renderMessage(message) {
         ${message.provider ? `<span class="tiny-badge">${escapeHtml(message.provider)}</span>` : ''}
         ${message.model ? `<span class="tiny-badge">${escapeHtml(message.model)}</span>` : ''}
         ${message.sessionId ? `<span class="tiny-badge">${escapeHtml(message.sessionId)}</span>` : ''}
+        ${renderConfidenceBadge(message)}
       </div>
-      <div class="message-content">${escapeHtml(message.content || '')}</div>
+      <div class="message-content ${message.role === 'assistant' && isLatestAssistant ? 'typewriter' : ''}">${assistantContent}</div>
+    </div>
+  `;
+}
+
+function skeletonLine(width = '100%') {
+  return `<div class="skeleton-line" style="width:${width}"></div>`;
+}
+
+function shellSkeletonMarkup() {
+  return `
+    <div class="dashboard">
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <div class="sidebar-label">Загрузка</div>
+          <div class="nav-list">
+            ${[
+              ['72%', '48%'],
+              ['68%', '40%'],
+              ['76%', '52%'],
+              ['64%', '44%'],
+              ['70%', '46%'],
+              ['74%', '42%'],
+              ['66%', '38%'],
+            ].map(([titleWidth, subtitleWidth]) => `<div class="nav-item skeleton-item">${skeletonLine(titleWidth)}${skeletonLine(subtitleWidth)}</div>`).join('')}
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="panel">
+          <div class="card">
+            <div class="card-header">
+              <div class="skeleton-title"></div>
+              <div class="actions"><div class="skeleton-chip"></div><div class="skeleton-chip"></div></div>
+            </div>
+            <div class="card-body">
+              <div class="grid two-up">
+                <div class="card compact skeleton-card">${skeletonLine('40%')}${skeletonLine('70%')}${skeletonLine('55%')}</div>
+                <div class="card compact skeleton-card">${skeletonLine('35%')}${skeletonLine('85%')}${skeletonLine('60%')}</div>
+              </div>
+              <div style="margin-top: 16px;" class="skeleton-block">${['88%', '74%', '64%', '82%'].map((width) => skeletonLine(width)).join('')}</div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   `;
 }
@@ -1681,7 +1767,7 @@ function shellMarkup() {
 }
 
 function render() {
-  app.innerHTML = shellMarkup();
+  app.innerHTML = state.loading ? shellSkeletonMarkup() : shellMarkup();
 }
 
 async function loadProjectData() {
