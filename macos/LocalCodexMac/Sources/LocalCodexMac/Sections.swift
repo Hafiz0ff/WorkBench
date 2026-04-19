@@ -13,7 +13,7 @@ struct ProjectView: View {
     var body: some View {
         SectionShell(title: store.localeStore.text("gui.project.title"), compact: compact) {
             VStack(alignment: .leading, spacing: compact ? 10 : 14) {
-                if let root = store.selectedProjectRoot {
+                if store.selectedProjectRoot != nil {
                     if !compact, store.projectLaunchBannerVisible, !store.projectLaunchMessages.isEmpty {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "checkmark.seal.fill")
@@ -49,43 +49,6 @@ struct ProjectView: View {
                     }
 
                     VStack(alignment: .leading, spacing: compact ? 10 : 12) {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "folder.fill")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(store.projectNameDisplay)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(root.path)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            Spacer(minLength: 8)
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text(store.currentTaskSummaryDisplay)
-                                    .font(.caption.weight(.semibold))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(store.currentRoleDisplay)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                        }
-                        .padding(10)
-                        .glassSurface(
-                            cornerRadius: 14,
-                            material: .ultraThinMaterial,
-                            tint: Color.primary.opacity(0.015),
-                            border: Color.primary.opacity(0.08),
-                            shadowRadius: 6
-                        )
-
                         ZStack(alignment: .topLeading) {
                             ProjectComposerTextView(
                                 text: $store.projectComposerText,
@@ -116,83 +79,12 @@ struct ProjectView: View {
                             composerFocused = true
                             store.requestProjectComposerFocus()
                         }
-
-                        StatusRibbon(items: [
-                            .init(label: store.localeStore.text("gui.project.currentTask"), value: store.currentTaskSummaryDisplay, tint: .orange, symbol: "checklist"),
-                            .init(label: store.localeStore.text("gui.project.currentRole"), value: store.currentRoleDisplay, tint: .blue, symbol: "person.fill"),
-                            .init(label: store.localeStore.text("gui.project.currentModel"), value: store.currentModelDisplay, tint: .teal, symbol: "cpu.fill"),
-                            .init(label: store.localeStore.text("gui.project.approvalMode"), value: store.approvalModeDisplay, tint: .purple, symbol: "shield.checkered"),
-                        ])
-
-                        ViewThatFits(in: .horizontal) {
-                            HStack(alignment: .center, spacing: 8) {
-                                Button {
-                                    Task { await store.startProjectTask() }
-                                } label: {
-                                    Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
-                                }
-                                .buttonStyle(.intent(.primary))
-                                .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                                Button {
-                                    store.chooseProjectFolder()
-                                } label: {
-                                    Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
-                                }
-                                .buttonStyle(.intent(.text))
-
-                                Button {
-                                    Task { await store.refreshWorkspace() }
-                                } label: {
-                                    Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
-                                }
-                                .buttonStyle(.intent(.text))
-
-                                Spacer(minLength: 12)
-                                Text(store.localeStore.text("gui.project.readyHint"))
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            VStack(alignment: .leading, spacing: 8) {
-                                Button {
-                                    Task { await store.startProjectTask() }
-                                } label: {
-                                    Label(store.localeStore.text("gui.project.startTask"), systemImage: "play.circle.fill")
-                                }
-                                .buttonStyle(.intent(.primary))
-                                .disabled(store.isProjectBootstrapping || store.isProjectComposerSubmitting || store.projectComposerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                                HStack(spacing: 10) {
-                                    Button {
-                                        store.chooseProjectFolder()
-                                    } label: {
-                                        Label(store.localeStore.text("gui.project.chooseProject"), systemImage: "folder")
-                                    }
-                                    .buttonStyle(.intent(.text))
-
-                                    Button {
-                                        Task { await store.refreshWorkspace() }
-                                    } label: {
-                                        Label(store.localeStore.text("gui.project.refresh"), systemImage: "arrow.clockwise")
-                                    }
-                                    .buttonStyle(.intent(.text))
-                                }
-
-                                Text(store.localeStore.text("gui.project.readyHint"))
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
                     }
                 } else {
                     EmptyStateView(
                         title: store.localeStore.text("gui.project.empty"),
                         message: store.localeStore.text("gui.project.emptyHint"),
-                        systemImage: "folder",
-                        primaryActionTitle: store.localeStore.text("gui.project.chooseProject"),
-                        primaryAction: {
-                            store.chooseProjectFolder()
-                        }
+                        systemImage: "folder"
                     )
                 }
             }

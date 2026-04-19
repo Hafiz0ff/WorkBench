@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: WorkspaceStore
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     var body: some View {
         GeometryReader { proxy in
@@ -17,7 +17,6 @@ struct ContentView: View {
                     .navigationTitle(store.localeStore.text("gui.app.title"))
             } content: {
                 VStack(alignment: .leading, spacing: density.isCompact ? 8 : 12) {
-                    WorkspaceControlStripView(density: density)
                     Group {
                         if store.isLoading {
                             LoadingSkeletonView(title: workspaceTitle)
