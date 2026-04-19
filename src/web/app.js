@@ -34,6 +34,7 @@ const state = {
   selectedProviderName: null,
   selectedRoleName: null,
   currentWorkspace: null,
+  taskDraftText: '',
   error: null,
   statusMessage: '',
 };
@@ -52,7 +53,14 @@ const sectionMeta = {
   providers: { label: 'Провайдеры', icon: '◌', subtitle: 'LLM routing' },
   roles: { label: 'Роли', icon: '◎', subtitle: 'profiles' },
   workspaces: { label: 'Воркспейсы', icon: '▣', subtitle: 'global registry' },
+  settings: { label: 'Настройки', icon: '⚙', subtitle: 'поведение агента' },
 };
+
+const QUICK_PROMPT_HINTS = [
+  'Изучить структуру проекта',
+  'Подготовить план изменений',
+  'Собрать контекст по проекту',
+];
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -484,6 +492,56 @@ function headerMarkup() {
   `;
 }
 
+function projectComposerPlaceholder() {
+  return [
+    'Опишите, что нужно сделать в проекте.',
+    '',
+    'Например:',
+    ...QUICK_PROMPT_HINTS.map((hint) => `- ${hint}`),
+  ].join('\n');
+}
+
+function renderRoleTag() {
+  const role = state.project?.role || 'авто';
+  return `<span class="tiny-badge role-tag">Роль: ${escapeHtml(role)}</span>`;
+}
+
+function renderMoreMenu() {
+  return `
+    <details class="more-menu">
+      <summary class="button">Дополнительно</summary>
+      <div class="more-menu-sheet">
+        <button class="button" data-action="refresh-memory">Обновить память</button>
+      </div>
+    </details>
+  `;
+}
+
+function renderComposerCard() {
+  return `
+    <form class="card composer-card" data-action="submit-task-form">
+      <div class="card-header">
+        <h2 class="card-title">Новая задача</h2>
+        <div class="actions">
+          ${renderMoreMenu()}
+        </div>
+      </div>
+      <div class="card-body tight">
+        <textarea
+          class="composer-textarea"
+          data-task-input
+          placeholder="${escapeHtml(projectComposerPlaceholder())}"
+          rows="6"
+        >${escapeHtml(state.taskDraftText || '')}</textarea>
+        <div class="composer-meta">
+          ${renderRoleTag()}
+          <span class="footer-note">Enter отправляет задачу. Shift+Enter добавляет новую строку.</span>
+        </div>
+      </div>
+    </form>
+  `;
+}
+
 function metricCard(label, value, sub = '') {
   const hasValue = value !== null && value !== undefined && value !== '';
   return `
@@ -658,17 +716,14 @@ function renderOverview() {
   const cards = [
     ['Проект', state.project?.name || '—', state.project?.root || ''],
     ['Провайдер', state.project?.provider || '—', state.project?.model || ''],
-    ['Активная роль', state.project?.role || 'не задана', state.selectedRoleName || ''],
     ['Текущая задача', state.project?.task?.title || 'не задана', state.project?.currentTaskId || ''],
   ];
   return sectionWrapper(
     'Обзор',
     'Быстрый срез состояния проекта, задач, провайдеров и тестов.',
-    [
-      buttonMarkup('Обновить память', 'refresh-memory', '', ''),
-      buttonMarkup('Обновить всё', 'refresh-all', '', 'primary'),
-    ].join(''),
+    buttonMarkup('Обновить всё', 'refresh-all', '', 'primary'),
     `
+      ${renderComposerCard()}
       <div class="grid cards">
         ${cards.map(([label, value, sub]) => metricCard(label, value, sub)).join('')}
       </div>
@@ -1309,7 +1364,7 @@ function renderMemory() {
   return sectionWrapper(
     'Память',
     'Markdown-обзор ключевых файлов памяти проекта.',
-    buttonMarkup('Обновить память', 'refresh-memory', '', 'primary'),
+    '',
     `
       <div class="section-stack">
         ${entries.map(([title, body]) => `
@@ -1620,6 +1675,26 @@ function renderRoles() {
   );
 }
 
+function renderSettings() {
+  const approvalMode = state.project?.approvalMode || '—';
+  return sectionWrapper(
+    'Настройки',
+    'Параметры, которые редко нужны в основном потоке работы.',
+    '',
+    `
+      <div class="card">
+        <div class="card-header"><h2 class="card-title">Поведение агента</h2></div>
+        <div class="card-body">
+          <div class="grid two-up">
+            ${metricCard('Режим подтверждения', approvalMode, 'Читается из policy проекта')}
+            ${metricCard('Freeze mode', state.project?.freezeMode ? 'включён' : 'выключен', state.project?.root || '—')}
+          </div>
+        </div>
+      </div>
+    `,
+  );
+}
+
 function renderWorkspaces() {
   const workspace = state.workspaces.find((item) => item.id === state.selectedWorkspaceId)
     || state.workspaces.find((item) => item.current)
@@ -1730,6 +1805,8 @@ function renderMain() {
       return renderRoles();
     case 'workspaces':
       return renderWorkspaces();
+    case 'settings':
+      return renderSettings();
     case 'overview':
     default:
       return renderOverview();
@@ -1889,6 +1966,20 @@ async function reloadView(message = '') {
 
 async function handleAction(action, target) {
   switch (action) {
+    case 'submit-task-form': {
+      const request = String(state.taskDraftText || '').trim();
+      if (!request) {
+        state.statusMessage = 'Опишите задачу перед отправкой.';
+        render();
+        return;
+      }
+      const result = await apiPost('/api/v1/tasks', { userRequest: request });
+      state.taskDraftText = '';
+      state.selectedTaskId = result?.task?.id || null;
+      state.statusMessage = 'Задача создана и активирована.';
+      await reloadView();
+      return;
+    }
     case 'section':
       state.activeSection = target.dataset.section || 'overview';
       location.hash = state.activeSection;
@@ -2183,6 +2274,56 @@ app.addEventListener('change', async (event) => {
   }
   try {
     await handleAction(target.dataset.action, target);
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+    render();
+  }
+});
+
+app.addEventListener('input', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  if (!target.matches('[data-task-input]')) {
+    return;
+  }
+  state.taskDraftText = target.value;
+});
+
+app.addEventListener('keydown', async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  if (!target.matches('[data-task-input]')) {
+    return;
+  }
+  if (event.key !== 'Enter' || event.shiftKey) {
+    return;
+  }
+  event.preventDefault();
+  try {
+    await handleAction('submit-task-form', target);
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+    render();
+  }
+});
+
+app.addEventListener('submit', async (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const actionTarget = form.closest('[data-action], form[data-action]') || form;
+  const action = actionTarget?.dataset?.action;
+  if (action !== 'submit-task-form') {
+    return;
+  }
+  event.preventDefault();
+  try {
+    await handleAction(action, form);
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
     render();

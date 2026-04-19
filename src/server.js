@@ -16,6 +16,7 @@ import {
   summarizeCurrentMemory,
 } from './memory.js';
 import {
+  createTask,
   ensureTaskWorkspace,
   listTasks,
   resolveTask,
@@ -60,6 +61,7 @@ import {
   switchWorkspace as switchProjectWorkspace,
 } from './workspace.js';
 import {
+  autoDetectRole,
   listRoleProfiles,
   setActiveRole,
 } from './roles.js';
@@ -830,11 +832,12 @@ async function parsePatchHistory(projectRoot, limit = 20) {
 
 async function getProjectStatusPayload(projectRoot) {
   const root = normalizeRoot(projectRoot);
-  const [state, providerSelection, task, pkgName] = await Promise.all([
+  const [state, providerSelection, task, pkgName, policy] = await Promise.all([
     readJsonFile(path.join(root, '.local-codex', 'state.json'), null),
     getActiveProviderSelection(root).catch(() => null),
     getCurrentTask(root).catch(() => null),
     readPackageName(root).catch(() => path.basename(root)),
+    readProjectPolicy(root).catch(() => null),
   ]);
   return {
     name: pkgName || path.basename(root),
@@ -842,10 +845,22 @@ async function getProjectStatusPayload(projectRoot) {
     provider: providerSelection?.providerName || state?.selectedProvider || null,
     model: providerSelection?.model || state?.selectedModel || null,
     role: state?.activeRole || null,
+    approvalMode: policy?.approvalMode || null,
     freezeMode: state?.freezeMode || null,
     task: task ? serializeTask(task) : null,
     currentTaskId: state?.currentTaskId || null,
   };
+}
+
+function deriveTaskTitleFromRequest(request) {
+  const compact = String(request || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!compact) {
+    return '';
+  }
+  const firstSentence = compact.split(/[.!?]/)[0]?.trim() || compact;
+  return firstSentence.length > 96 ? `${firstSentence.slice(0, 93).trim()}...` : firstSentence;
 }
 
 async function getProjectMemoryPayload(projectRoot) {
@@ -997,6 +1012,34 @@ async function handleApiRequest(req, res, runtime, pathname, searchParams) {
     jsonResponse(res, 200, {
       currentTaskId: tasks.currentTaskId,
       tasks: tasks.tasks.map(serializeTask),
+    });
+    return;
+  }
+
+  if (pathname === '/api/v1/tasks' && req.method === 'POST') {
+    const body = await readJsonBody(req).catch(() => ({}));
+    const userRequest = String(body.userRequest || body.request || '').trim();
+    const title = String(body.title || '').trim() || deriveTaskTitleFromRequest(userRequest);
+    if (!userRequest || !title) {
+      jsonResponse(res, 400, { ok: false, error: 'missing_task_request' });
+      return;
+    }
+    const detectedRole = await autoDetectRole(projectRoot, userRequest);
+    await setActiveRole(projectRoot, detectedRole);
+    const task = await createTask(projectRoot, {
+      title,
+      userRequest,
+      summary: userRequest,
+      role: detectedRole,
+      model: body.model || null,
+      status: 'draft',
+    });
+    const currentTask = await setCurrentTask(projectRoot, task.id);
+    runtime.send('task:updated', { taskId: currentTask.id });
+    jsonResponse(res, 200, {
+      ok: true,
+      role: detectedRole,
+      task: serializeTask(currentTask),
     });
     return;
   }

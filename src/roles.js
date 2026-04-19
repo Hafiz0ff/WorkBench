@@ -469,6 +469,58 @@ export async function resolveRoleSelection(projectRoot, preferredRoleName = null
   }
 }
 
+export async function autoDetectRole(projectRoot, taskText = '') {
+  const root = path.resolve(projectRoot);
+  const source = String(taskText || '').trim().toLowerCase();
+  if (!source) {
+    return 'senior-engineer';
+  }
+
+  const profiles = await listRoleProfiles(root).catch(() => []);
+  const available = new Set(profiles.map((profile) => profile.name));
+  const keywords = [
+    ['frontend-engineer', ['ui', 'ux', 'frontend', 'layout', 'css', 'html', 'react', 'vue', 'компонент', 'интерфейс', 'экран', 'верстк', 'дизайн']],
+    ['backend-engineer', ['backend', 'api', 'server', 'database', 'db', 'sql', 'orm', 'route', 'endpoint', 'сервер', 'база', 'данн', 'контракт']],
+    ['test-engineer', ['test', 'spec', 'coverage', 'assert', 'integration test', 'unit test', 'тест', 'покрыти', 'регресси']],
+    ['performance-optimizer', ['performance', 'latency', 'memory leak', 'optimize', 'slow', 'bottleneck', 'производител', 'медлен', 'оптимиз']],
+    ['refactoring-strategist', ['refactor', 'cleanup', 'simplify', 'restructure', 'рефактор', 'упрост', 'перестро', 'cleanup']],
+    ['release-engineer', ['release', 'deploy', 'ship', 'version', 'changelog', 'tag', 'релиз', 'деплой', 'верси', 'нотари']],
+    ['api-designer', ['api design', 'api contract', 'rest', 'graphql', 'schema', 'openapi', 'контракт api', 'дизайн api']],
+    ['migration-engineer', ['migration', 'migrate', 'schema change', 'upgrade path', 'rollback', 'миграц', 'перенос формата']],
+    ['qa-analyst', ['qa', 'acceptance', 'checklist', 'scenario', 'manual test', 'приемк', 'сценари', 'чеклист']],
+    ['bug-hunter', ['bug', 'fix', 'broken', 'issue', 'regression', 'ошибк', 'баг', 'сломано', 'не работает']],
+    ['devops-engineer', ['devops', 'infra', 'docker', 'ci', 'cd', 'pipeline', 'kubernetes', 'terraform', 'инфра', 'сборк']],
+    ['security-reviewer', ['security', 'auth', 'permission', 'secret', 'token', 'xss', 'csrf', 'sql injection', 'безопас', 'секрет', 'доступ']],
+    ['documentation-engineer', ['docs', 'readme', 'documentation', 'guide', 'manual', 'документац', 'readme', 'инструкц']],
+    ['integration-engineer', ['integration', 'webhook', 'adapter', 'bridge', 'sync', 'mcp', 'интеграц', 'адаптер', 'хук']],
+    ['software-architect', ['architecture', 'architect', 'system design', 'boundary', 'module', 'архитект', 'границ', 'модул']],
+    ['code-reviewer', ['review', 'audit', 'code review', 'pr review', 'ревью', 'аудит кода', 'review comments']],
+    ['debugging-expert', ['debug', 'trace', 'investigate', 'stack trace', 'reproduce', 'отлад', 'диагност', 'воспроизвед']],
+    ['designer', ['design system', 'visual', 'brand', 'mockup', 'glassmorphism', 'визуал', 'типограф', 'стиль']],
+    ['product-manager', ['product', 'roadmap', 'scope', 'requirement', 'ux flow', 'продукт', 'roadmap', 'тз', 'сценарий']],
+  ];
+
+  let bestRole = 'senior-engineer';
+  let bestScore = 0;
+  for (const [roleName, roleKeywords] of keywords) {
+    if (!available.has(roleName)) {
+      continue;
+    }
+    let score = 0;
+    for (const keyword of roleKeywords) {
+      if (source.includes(keyword)) {
+        score += keyword.includes(' ') ? 3 : 2;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestRole = roleName;
+    }
+  }
+
+  return bestRole;
+}
+
 export function formatRoleProfile(profile) {
   return renderRoleSummary(profile);
 }

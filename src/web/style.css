@@ -53,6 +53,10 @@ select {
   font: inherit;
 }
 
+textarea {
+  resize: vertical;
+}
+
 button {
   cursor: pointer;
 }
@@ -419,6 +423,7 @@ a {
 }
 
 .field input,
+.composer-textarea,
 .field select {
   width: 100%;
   transform: translate3d(0, 0, 0);
@@ -426,12 +431,14 @@ a {
 }
 
 .field input:hover,
+.composer-textarea:hover,
 .field select:hover {
   border-color: rgba(79, 152, 163, 0.38);
   background: rgba(255, 255, 255, 0.06);
 }
 
 .field input:active,
+.composer-textarea:active,
 .field select:active {
   transform: translate3d(0, 1px, 0);
 }
@@ -522,6 +529,69 @@ a {
 
 .card-body.tight {
   padding-top: 10px;
+}
+
+.composer-card {
+  box-shadow: none;
+}
+
+.composer-textarea {
+  width: 100%;
+  min-height: 148px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  line-height: 1.55;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+.composer-textarea::placeholder {
+  color: var(--quiet);
+}
+
+.composer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.role-tag {
+  color: #ccecf0;
+  border-color: rgba(79, 152, 163, 0.35);
+  background: rgba(79, 152, 163, 0.11);
+}
+
+.more-menu {
+  position: relative;
+}
+
+.more-menu summary {
+  list-style: none;
+}
+
+.more-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-menu-sheet {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 220px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(23, 26, 33, 0.96);
+  box-shadow: var(--shadow);
+  z-index: 15;
 }
 
 .metric {
