@@ -41,19 +41,12 @@ struct WorkspaceRailView: View {
                     .padding(.vertical, density.isCompact ? 2 : 4)
 
                 VStack(alignment: .leading, spacing: density.isCompact ? 6 : 8) {
-                    RailNavButton(title: store.localeStore.text("gui.sidebar.project"), systemImage: "house", isSelected: store.selectedSection == .project, density: density) {
+                    RailNavButton(title: store.localeStore.text("gui.sidebar.project"), systemImage: "house", isSelected: store.selectedInspectorTab != .advanced, density: density) {
                         store.selectedSection = .project
-                    }
-                    RailNavButton(title: store.localeStore.text("gui.sidebar.tasks"), systemImage: "checklist", isSelected: store.selectedInspectorTab == .task, density: density) {
                         store.selectedInspectorTab = .task
                     }
-                    RailNavButton(title: store.localeStore.text("gui.sidebar.roles"), systemImage: "person.2", isSelected: store.selectedInspectorTab == .role, density: density) {
-                        store.selectedInspectorTab = .role
-                    }
-                    RailNavButton(title: store.localeStore.text("gui.sidebar.session"), systemImage: "play.rectangle", isSelected: store.selectedInspectorTab == .logs, density: density) {
-                        store.selectedInspectorTab = .logs
-                    }
                     RailNavButton(title: store.localeStore.text("gui.sidebar.settings"), systemImage: "gearshape", isSelected: store.selectedInspectorTab == .advanced, density: density) {
+                        store.selectedSection = .project
                         store.selectedInspectorTab = .advanced
                     }
                 }
